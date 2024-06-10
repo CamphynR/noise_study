@@ -1,0 +1,4 @@
+Notes to self:
+use as event selection:
+    type: "PHYSICS"
+    trigger rate < 2 Hz (higher trigger rates are probably windy/human activity periods)
