@@ -3,6 +3,8 @@ import logging
 import glob
 import numpy as np
 import pickle
+import argparse
+
 from NuRadioReco.utilities import units
 from NuRadioReco.detector import detector
 from NuRadioReco.modules.io.RNO_G.readRNOGDataMattak import readRNOGData
@@ -10,6 +12,12 @@ from NuRadioReco.modules.io.RNO_G.readRNOGDataMattak import readRNOGData
 import config
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(prog = "%(prog)s",
+                                     usage = "placeholder")
+    parser.add_argument("--save", action = "store_true",
+                        help = "save to picle")
+    args = parser.parse_args()
+
     det = detector.Detector(source = "rnog_mongo",
                             always_query_entire_description = False,
                             database_connection = "RNOG_public",
@@ -43,6 +51,6 @@ if __name__ == "__main__":
             rms = np.sqrt(np.mean(trace**2))
             print(rms)
             rms_list[channel_id].append(rms)
-
-    # with open(f"rms_lists/rms_s{config.stations[0]}.pickle", "wb") as f:
-    #     pickle.dump(rms_list, f)
+    if args.save:
+        with open(f"rms_lists/rms_s{config.stations[0]}.pickle", "wb") as f:
+            pickle.dump(rms_list, f)
