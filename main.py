@@ -11,11 +11,28 @@ from NuRadioReco.modules.io.RNO_G.readRNOGDataMattak import readRNOGData
 
 import config
 
+def read_rms(reader, save = False):
+    rms_list = [[] for i in range(24)]
+    for i_event, event in enumerate(rnog_reader.run()):
+        station_id = event.get_station_ids()[0]
+        print(station_id)   
+        station = event.get_station(station_id)
+        for channel in station.iter_channels():
+            channel_id = channel.get_id()
+            trace = channel.get_trace()
+            rms = np.sqrt(np.mean(trace**2))
+            print(rms)
+            rms_list[channel_id].append(rms)
+    if save:
+        with open(f"rms_lists/rms_s{config.stations[0]}.pickle", "wb") as f:
+            pickle.dump(rms_list, f)
+    return np.array(rms_list)
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog = "%(prog)s",
                                      usage = "placeholder")
     parser.add_argument("--save", action = "store_true",
-                        help = "save to picle")
+                        help = "save to pickle")
     args = parser.parse_args()
 
     det = detector.Detector(source = "rnog_mongo",
@@ -40,17 +57,4 @@ if __name__ == "__main__":
                       max_trigger_rate = 2 * units.Hz,
                       mattak_kwargs = mattak_kw)
     
-    rms_list = [[] for i in range(24)]
-    for i_event, event in enumerate(rnog_reader.run()):
-        station_id = event.get_station_ids()[0]
-        print(station_id)   
-        station = event.get_station(station_id)
-        for channel in station.iter_channels():
-            channel_id = channel.get_id()
-            trace = channel.get_trace()
-            rms = np.sqrt(np.mean(trace**2))
-            print(rms)
-            rms_list[channel_id].append(rms)
-    if args.save:
-        with open(f"rms_lists/rms_s{config.stations[0]}.pickle", "wb") as f:
-            pickle.dump(rms_list, f)
+    rms = read_rms(rnog_reader, args.save)

@@ -16,19 +16,22 @@ def plot_trace(ax, trace, channel_id, read_calibrated_data = False):
     ax.set_title(f"channel {channel_id}")
     return ax
 
-def run_test(selectors = [], calibrated = False, save_fig = False, max_iter = -1, backend = "auto"):
+def run_test(data_dir,
+             selectors = [],calibrated = False, backend = "auto",
+             save_fig = False, max_iter = -1,
+             max_trigger_rate = 2 * units.kHz):
     rnog_reader = readRNOGData(log_level=logging.DEBUG)
     
     # These are the default mattak kwargs, these can be changed to test different data reading aspects
     mattak_kw = dict(backend = backend, read_daq_status = True)
-    rnog_reader.begin(args.data_dir,
+    rnog_reader.begin(data_dir,
                       selectors = selectors,
                       read_calibrated_data = args.calibrated,
                       apply_baseline_correction = "approximate",
                       convert_to_voltage = False,
                       select_runs = True,
                       run_types = ["physics"],
-                      max_trigger_rate = 2 * units.Hz,
+                      max_trigger_rate = max_trigger_rate,
                       mattak_kwargs = mattak_kw)
     
     for i_event, event in enumerate(rnog_reader.run()):
@@ -36,7 +39,7 @@ def run_test(selectors = [], calibrated = False, save_fig = False, max_iter = -1
         station = event.get_station(station_id)
         # picking out a random event
         # let the whole for loop finish for testing purposes
-        if save_fig and i_event == 3:
+        if save_fig and i_event == 1:
             print("Plotting event")
             fig, axs = plt.subplots(6, 4, figsize = (20, 12))
             axs = np.ndarray.flatten(axs)
@@ -64,9 +67,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     selectors = lambda event_info : event_info.triggerType == "FORCE"
-    
-    run_test(selectors = selectors, calibrated = args.calibrated, save_fig = True, backend = args.backend, max_iter = 15)
+    run_test(args.data_dir, selectors = selectors, calibrated = args.calibrated, backend = args.backend,
+             max_trigger_rate=0,
+             save_fig = True, max_iter = 15)
 
     if args.extended_test:
-        run_test(selectors = [], max_iter = 10, backend = args.backend)
-        run_test(selectors = None, max_iter = 10, backend = args.backend)
+        run_test(args.data_dir, selectors = [], max_iter = 10, backend = args.backend)
+        run_test(args.data_dir, selectors = None, max_iter = 10, backend = args.backend)

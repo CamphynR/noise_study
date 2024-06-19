@@ -1,0 +1,12 @@
+TFile * inputFile = new TFile("/home/ruben/Documents/data/RNO-G_data/calibration/station23/volCalConsts_pol9_s23_1692989345-1692990814.root")
+TString graphNameTitle = TString::Format("aveResid_dac1");
+TObject * obj = inputFile->Get(graphNameTitle)
+TGraph * g = (TGraph*) obj;
+std::array<TGraphErrors*, 2> graph_residAve;
+graph_residAve[0] = new TGraphErrors(g->GetN(), g->GetX(), g->GetY());
+g->TNamed::Copy(*graph_residAve[0]);
+g->TAttMarker::Copy(*graph_residAve[0]);
+g->TAttLine::Copy(*graph_residAve[0]);
+g->TAttFill::Copy(*graph_residAve[0]);
+int npoints_residGraph = graph_residAve[0]->GetN();
+graph_residAve[0]->SetBit(TGraph::kIsSortedX);
