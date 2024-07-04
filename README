@@ -2,3 +2,17 @@ Notes to self:
 use as event selection:
     type: "PHYSICS"
     trigger rate < 2 Hz (higher trigger rates are probably windy/human activity periods)
+
+BROKEN RUNS:
+station 24, run 363, event 105 is broken (200 header entries, but only 100 waveforms)
+
+Calibration:
+Currently the full calibration only works in the uproot backend, pyroot struggles with memory issues
+Hence the code only uses the uproot backend for now (we also don't have VolCal files)
+
+Potential artifacts:
+    Have a look at ringing, which can be caused be the deconvolution of the detector out of the trace
+
+What to do with G = 0? this represents e.g. a bandpass filter.
+This information is lost so what value should be used as placeholder or this should be deleted?
+For the purpose of thermal noise from ice I assume these can be set to 0 since the signal here is purely electronic noise?
