@@ -16,7 +16,7 @@ def find_frequency_peaks(trace : np.ndarray, threshold = 4):
     wf : np.ndarray
         waveform (shape: [24,2048])
     """
-    fs = 3.2e9
+    fs = 3.2e9 * units.Hz
     freq = np.fft.rfftfreq(2048, d = 1/fs)
     ft = fft.time2freq(trace, fs)
     
@@ -25,7 +25,7 @@ def find_frequency_peaks(trace : np.ndarray, threshold = 4):
 
     return freq[peak_idxs]
 
-def filter_cws(trace, Q = 1e3, fs = 3.2e9):
+def filter_cws(trace, Q = 1e3, fs = 3.2e9 * units.Hz):
     freqs = find_frequency_peaks(trace)
 
     if len(freqs) !=0:
@@ -42,13 +42,12 @@ class cwFilter():
     def __init__(self):
         pass
 
-    def begin(self, fs = 3.2e9):
+    def begin(self, fs = 3.2e9 * units.Hz):
         self._fs = fs
 
     def run(self, event, station):
         for channel in station.iter_channels():
             trace = channel.get_trace()
-            freq_peaks = find_frequency_peaks(trace)
             trace_fil = filter_cws(trace, fs = self._fs)
             channel.set_trace(trace_fil, self._fs)
         
