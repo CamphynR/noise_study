@@ -156,21 +156,10 @@ if __name__ == "__main__":
                         type = int,
                         default = 24)
     parser.add_argument("-r", "--run",
-                        type = int,
                         default = None)
-    parser.add_argument("--savename")
     
-    parser.add_argument("-v", "--variable",
-                        required = True,
-                        choices = ["rms", "trace", "spec"])
     parser.add_argument("--config", help = "path to config.json file")
-
-    parser.add_argument("--only_mean", action = "store_true")          
-    parser.add_argument("-c", "--calibration",
-                        choices = ["linear", "full"],
-                        default = "linear")
-    parser.add_argument("--save", action = "store_true",
-                        help = "save to pickle")
+    
     parser.add_argument("--skip_clean", action = "store_true")
     parser.add_argument("--test", action = "store_true", help = "enables test mode, which only uses one run of data ")
     args = parser.parse_args()
@@ -178,20 +167,19 @@ if __name__ == "__main__":
     with open(args.config, "r") as config_json:
         config = json.load(config_json)
 
-
     logger = logging.getLogger(__name__)
     logging.basicConfig(level = logging.DEBUG)
 
 
     functions = dict(rms = calculate_rms, trace = calculate_trace, spec = calculate_spec)
-    calculate_variable = functions[args.variable]
+    calculate_variable = functions[config["variable"]]
 
     det = detector.Detector(source = "rnog_mongo",
                             always_query_entire_description = False,
                             database_connection = "RNOG_public",
                             select_stations = args.station)
     
-    det.update(Time(config.detector_time))
+    det.update(Time(config["detector_time"]))
 
     rnog_reader = readRNOGData(log_level = logging.DEBUG) #note if no runtable provided, runtable is queried from the database
 
@@ -207,16 +195,15 @@ if __name__ == "__main__":
     else:    
         root_dirs = glob.glob(f"{data_dir}/station{args.station}/run*[!run363]/") # run 363 is broken (100 waveforms with 200 event infos)
 
-   
     
     selectors = lambda event_info : event_info.triggerType == "FORCE"
     run_time_range = ("2024-08-01", None)
     mattak_kw = dict(backend = "uproot", read_daq_status = False)
     rnog_reader.begin(root_dirs,    
                       selectors = selectors,
-                      read_calibrated_data = args.calibration == "full",
+                      read_calibrated_data = config["calibration"] == "full",
                       apply_baseline_correction="approximate",
-                      convert_to_voltage = args.calibration == "linear",
+                      convert_to_voltage = config["calibration"] == "linear",
                       select_runs = True,
                       run_types = ["physics"],
                       run_time_range = run_time_range,
@@ -226,9 +213,9 @@ if __name__ == "__main__":
     # cleaning parameters
     passband = [200 * units.MHz, 600 * units.MHz]               
 
-    rms = parse_variables(rnog_reader, det, config = config, save = args.save,
+    rms = parse_variables(rnog_reader, det, config = config, save = config["save"],
                           clean_data = not args.skip_clean,
                           calculate_variable = calculate_variable,
-                          only_mean = args.only_mean,
+                          only_mean = config["only_mean"],
                           test = args.test,
-                          savename = args.savename)
+                          savename = config["savename"])

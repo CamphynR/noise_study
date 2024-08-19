@@ -8,17 +8,19 @@ import mattak.Dataset
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(prog = '%(prog)s')
+    parser.add_argument("-d", "--data_path",
+                        default = None)
     parser.add_argument('-s', "--station",
                         type = int)
     parser.add_argument("-r", "--run",
                         type = int)
     parser.add_argument('-e', "--event",
-                        type = int)
+                        type = int, default = 0)
     parser.add_argument("-c", "--channel",
                         type = int, default = 0)
     args = parser.parse_args()
 
-    ds = mattak.Dataset.Dataset(station = args.station, run = args.run, backend = "uproot", verbose = True)
+    ds = mattak.Dataset.Dataset(station = args.station, run = args.run, data_path = args.data_path,  backend = "uproot", verbose = True)
     ds.setEntries((0, None))
     print(f"dataset contains {ds.N()} entries")
 
