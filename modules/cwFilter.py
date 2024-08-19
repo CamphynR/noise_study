@@ -45,7 +45,7 @@ class cwFilter():
     def begin(self, fs = 3.2e9 * units.Hz):
         self._fs = fs
 
-    def run(self, event, station):
+    def run(self, event, station, det):
         for channel in station.iter_channels():
             trace = channel.get_trace()
             trace_fil = filter_cws(trace, fs = self._fs)

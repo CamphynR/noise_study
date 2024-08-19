@@ -8,7 +8,7 @@ from NuRadioReco.utilities import units
 from NuRadioReco.framework.base_trace import BaseTrace
 from NuRadioReco.utilities import fft
 
-import modules.filter_cw
+import modules.cwFilter
 
 def read_var_from_pickle(file_adress):
     with open(file_adress, "rb") as f:
@@ -33,7 +33,7 @@ if __name__ == "__main__":
     freqs = np.fft.rfftfreq(2048, d = 1/fs)
     spec_before = fft.time2freq(traces, sampling_rate = fs)
     
-    filtered_trace = modules.filter_cw.filter_cws(traces)
+    filtered_trace = modules.cwFilter.filter_cws(traces)
     spec_after = fft.time2freq(filtered_trace, sampling_rate = fs)
 
     fig, axs = plt.subplots(1, 2, figsize = (14, 6))

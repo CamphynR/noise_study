@@ -1,30 +1,32 @@
 import time
 from NuRadioReco.detector import detector
 
+
+
 class detectorFilter():
     def __init__(self):
         pass
 
-    def begin(self, det : detector.Detector, nr_of_channels = 24):
+    def begin(self, nr_of_channels = 24):
         self._nr_of_channels = 24
-        self._det = det
-        self._station_ids = det.get_station_ids()
-        if isinstance(self._station_ids, int):
-            self._station_ids = [self._station_ids]
-
-        self.det_response = [[[] for i in range(self._nr_of_channels)] for s in range(len(self._station_ids))]
-        for idx, station_id in enumerate(self._station_ids):
-            for channel_id in range(nr_of_channels):
-                self.det_response[idx][channel_id] = det.get_signal_chain_response(station_id, channel_id)
         
-
-    def run(self, event, station):
+        # self._station_ids = det.get_station_ids()
+        # if isinstance(self._station_ids, int):
+        #     self._station_ids = [self._station_ids]
+        # self._det_response = [[[] for i in range(self._nr_of_channels)] for s in range(len(self._station_ids))]
+        # for idx, station_id in enumerate(self._station_ids):
+        #     for channel_id in range(nr_of_channels):
+        #         self.det_response[idx][channel_id] = det.get_signal_chain_response(station_id, channel_id)
+        return
+       
+    def run(self, event, station, det : detector.Detector):
         t0 = time.time()
         channels_filtered = []
         for channel in station.iter_channels():
             station_id = station.get_id()
             channel_id = channel.get_id()
-            channels_filtered += [channel / self.det_response[self._station_ids == station_id][channel_id]]
+            self.det_response = det.get_signal_chain_response(station_id, channel_id)
+            channels_filtered += [channel / self.det_response]
 
         for channel_id in range(self._nr_of_channels):
             station.remove_channel(channel_id)
@@ -37,6 +39,8 @@ class detectorFilter():
 
     def __str__(self):
         return f"Detector deconvolution filter contains info on stations {self._station_ids}"
+
+
 
 # test
 if __name__ == "__main__":
