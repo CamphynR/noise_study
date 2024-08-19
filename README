@@ -1,3 +1,9 @@
+Options to pass as variable:
+    "rms", "trace" and "spec"
+
+Options to pass calibration:
+    "linear" and "full"
+
 Notes to self:
 use as event selection:
     type: "PHYSICS"
