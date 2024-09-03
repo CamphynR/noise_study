@@ -15,6 +15,7 @@ import json
 import numpy as np
 import pickle
 import argparse
+import datetime
 from typing import Callable
 
 from astropy.time import Time
@@ -30,14 +31,19 @@ import modules.detectorFilter
 
 def get_output_shape(function : Callable[[BaseTrace], np.ndarray]):
     """
-    Function to obtain the output shape of a function that applies to a NuRadio     BaseTrace object
+    Function to obtain the output shape of a function that applies to a NuRadio BaseTrace object
     """
     dummy_channel = BaseTrace()
     dummy_trace = np.ones(2048)
     dummy_fs = 3.2e9 * units.Hz
     dummy_channel.set_trace(dummy_trace, sampling_rate = dummy_fs)
     dummy_output = function(dummy_channel)
-    return np.array(dummy_output).shape
+    #check to get shape (1) of output is a single entity e.g. an int or float
+    if np.array(dummy_output).shape:
+        shape = np.array(dummy_output).shape
+    else:
+        shape = (1,)
+    return shape
 
 def initialise_variables_list(function, nr_of_stations, nr_of_channels = 24):
     output_shape = get_output_shape(function)
@@ -61,6 +67,8 @@ def select_config(config_value : str, options : dict) -> np.ndarray:
     for option in options.keys():
         if config_value == option:
             return options[config]
+        
+
 
 def parse_variables(reader, detector, config, save = False, clean_data = True,
                     calculate_variable = calculate_trace, only_mean = True,
@@ -118,7 +126,7 @@ def parse_variables(reader, detector, config, save = False, clean_data = True,
         print(f"total events that passed filter {events_processed}")
         variables_list = variables_list/events_processed
         # std_list = 
-
+    
 
     dt = time.time() - t0
     logger.debug(f"Main calculation loop takes {dt}")
@@ -131,7 +139,6 @@ def parse_variables(reader, detector, config, save = False, clean_data = True,
         if savename:
             filename = f"variable_lists/{function_name}_lists/{savename}.pickle"
         else:
-
             station_names = "-".join([str(s) for s in station_ids])
             appendix = "clean" if clean_data else "unclean"
             if only_mean:
@@ -158,7 +165,7 @@ if __name__ == "__main__":
     parser.add_argument("-r", "--run",
                         default = None)
     
-    parser.add_argument("--config", help = "path to config.json file")
+    parser.add_argument("--config", help = "path to config.json file", default = "config.json")
     
     parser.add_argument("--skip_clean", action = "store_true")
     parser.add_argument("--test", action = "store_true", help = "enables test mode, which only uses one run of data ")
@@ -180,7 +187,7 @@ if __name__ == "__main__":
                             select_stations = args.station)
     
     det.update(Time(config["detector_time"]))
-
+    
     rnog_reader = readRNOGData(log_level = logging.DEBUG) #note if no runtable provided, runtable is queried from the database
 
     if args.data_dir == None:
@@ -197,7 +204,10 @@ if __name__ == "__main__":
 
     
     selectors = lambda event_info : event_info.triggerType == "FORCE"
-    run_time_range = ("2024-08-01", None)
+    if len(config["run_time_range"]) == 0:
+        run_time_range = None
+    else:
+        run_time_range = config["run_time_range"]
     mattak_kw = dict(backend = "uproot", read_daq_status = False)
     rnog_reader.begin(root_dirs,    
                       selectors = selectors,
@@ -211,7 +221,7 @@ if __name__ == "__main__":
                       mattak_kwargs = mattak_kw)
 
     # cleaning parameters
-    passband = [200 * units.MHz, 600 * units.MHz]               
+    passband = [200 * units.MHz, 600 * units.MHz]      
 
     rms = parse_variables(rnog_reader, det, config = config, save = config["save"],
                           clean_data = not args.skip_clean,
