@@ -54,7 +54,7 @@ if __name__ == "__main__":
                         default = ["/user/rcamphyn/noise_study/rms_lists/rms_s24_clean.pickle"],
                         help = "rms pickle file to plot, can choose to plot 2. First one is labeled as before cleaning \
                                 second one as after cleaning")
-    parser.add_argument("--skip_channels", type = int, nargs = "+")
+    parser.add_argument("--skip_channels", type = int, nargs = "+", default = [])
     args = parser.parse_args()
 
     if len(args.rms_files) not in [1, 2]:
