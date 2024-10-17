@@ -10,6 +10,7 @@ Whether all variables or only the mean over all events is to be stored can be ch
 import os
 import time
 import logging
+logging.basicConfig(level = logging.WARNING)
 import glob
 import json
 import numpy as np
@@ -68,15 +69,20 @@ def select_config(config_value : str, options : dict) -> np.ndarray:
         if config_value == option:
             return options[config]
         
+def create_nested_dir(dir):
+    try:
+        os.makedirs(dir)
+    except:
+        if os.path.isdir(dir):
+            pass
+        else:
+            raise SystemError("os was unable to construct data folder hierarchy")
 
-
-def parse_variables(reader, detector, config, save = False, clean_data = True,
-                    calculate_variable = calculate_trace, only_mean = True,
-                    test = False,
-                    savename = None):
- 
+def parse_variables(reader, detector, config, args,
+                    calculate_variable = calculate_trace,):
+    clean_data = not args.skip_clean
     # initialise cleaning modules
-    cleaning_options = {"channelBandpassFilter" : NuRadioReco.modules.channelBandPassFilter.channelBandPassFilter, "cwFilter" : modules.cwFilter.cwFilter, "detectorFilter" : modules.detectorFilter.detectorFilter}
+    cleaning_options = {"channelBandpassFilter" : NuRadioReco.modules.channelBandPassFilter.channelBandPassFilter, "detectorFilter" : modules.detectorFilter.detectorFilter, "cwFilter" : modules.cwFilter.cwFilter}
     cleaning_modules = dict((cf, cleaning_options[cf]()) for cf in config["cleaning"].keys())
 
     # channelBandPassFilter = NuRadioReco.modules.channelBandPassFilter.channelBandPassFilter()
@@ -91,7 +97,7 @@ def parse_variables(reader, detector, config, save = False, clean_data = True,
     
     logger.debug("Starting calculation")
     station_ids = np.array(detector.get_station_ids())
-    if only_mean:
+    if config["only_mean"]:
         variables_list = initialise_variables_list(calculate_variable, len(station_ids))
         std_list = initialise_variables_list(calculate_variable, len(station_ids))
     else:
@@ -115,14 +121,14 @@ def parse_variables(reader, detector, config, save = False, clean_data = True,
     
         for channel in station.iter_channels():
             channel_id = channel.get_id()
-            if only_mean:
+            if config["only_mean"]:
                 variables_list[station_id == station_ids, channel_id, :] += calculate_variable(channel)
                 std_list[station_id == station_ids, channel_id, :] += calculate_variable(channel)**2
             else:
                 idx = np.where(station_id == station_ids)[0][0] # needed because here variables_list is list type
                 variables_list[idx][channel_id].append(calculate_variable(channel))
 
-    if only_mean:
+    if config["only_mean"]:
         print(f"total events that passed filter {events_processed}")
         variables_list = variables_list/events_processed
         # std_list = 
@@ -131,24 +137,35 @@ def parse_variables(reader, detector, config, save = False, clean_data = True,
     dt = time.time() - t0
     logger.debug(f"Main calculation loop takes {dt}")
 
-    if save:  
-        logger.debug("Saving rms to file")
-
+    if config["save"]:
         # assumes function name to be calculate_*
-        function_name = calculate_variable.__name__[10:]
-        if savename:
-            filename = f"variable_lists/{function_name}_lists/{savename}.pickle"
+        function_name = calculate_variable.__name__.split("_")[1]
+        save_dir = config["save_dir"]
+        # defining a savename overwrites the data structure and simplu saves everything in a file,
+        # useful when running one script for multiple stations
+        if config["savename"]:
+            filename = f"{save_dir}/variable_lists/{function_name}_lists/{config['savename']}.pickle"
         else:
-            station_names = "-".join([str(s) for s in station_ids])
-            appendix = "clean" if clean_data else "unclean"
-            if only_mean:
-                appendix += "_mean"
-            if test:
-                appendix += "_test"    
-            filename = f"variable_lists/{function_name}_lists/{function_name}_s{station_names}_{appendix}.pickle"
+            date = datetime.datetime.now().strftime("%Y_%m_%d")
+            dir = f"{save_dir}/{function_name}/run_{date}"
+            if args.test:
+                dir += "_test"
+            if not clean_data:
+                dir += "_no_clean"
+
+            create_nested_dir(dir)
+
+            config_name = f"{dir}/config.json"
+            # assumes only one station is run at a time
+            filename = f"{dir}/station{station_ids[0]}"
+            filename += ".pickle"
         print(f"Saving as {filename}")
         with open(filename, "wb") as f:
             pickle.dump(variables_list, f)
+        # copies the config used for future reference
+        settings_dict = {**config, **vars(args)}
+        with open(config_name, "w") as f:
+            json.dump(settings_dict, f)
 
     return np.array(variables_list)
 
@@ -223,9 +240,5 @@ if __name__ == "__main__":
     # cleaning parameters
     passband = [200 * units.MHz, 600 * units.MHz]      
 
-    rms = parse_variables(rnog_reader, det, config = config, save = config["save"],
-                          clean_data = not args.skip_clean,
-                          calculate_variable = calculate_variable,
-                          only_mean = config["only_mean"],
-                          test = args.test,
-                          savename = config["savename"])
+    rms = parse_variables(rnog_reader, det, config=config, args=args,
+                          calculate_variable = calculate_variable)
