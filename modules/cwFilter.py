@@ -58,11 +58,9 @@ def filter_cws(trace, Q = 1e3, threshold = 4, fs = 3.2e9 * units.Hz):
 
     if len(freqs) !=0:
         notch_filters = [signal.iirnotch(freq, Q, fs = fs) for freq in freqs]
-        trace_notched = signal.filtfilt(notch_filters[0][0], notch_filters[0][1], trace)
-        for notch in notch_filters[1:]:
-            trace_notched = signal.filtfilt(notch[0], notch[1], trace_notched)
+        notch_filters = np.array(notch_filters).reshape(-1, 6)
+        trace_notched = signal.sosfiltfilt(notch_filters, trace)
         return trace_notched
-
     return trace
 
 

@@ -225,7 +225,7 @@ if __name__ == "__main__":
         run_time_range = None
     else:
         run_time_range = config["run_time_range"]
-    mattak_kw = dict(backend = "uproot", read_daq_status = False)
+    mattak_kw = dict(backend = "pyroot", read_daq_status = False)
     rnog_reader.begin(root_dirs,    
                       selectors = selectors,
                       read_calibrated_data = config["calibration"] == "full",

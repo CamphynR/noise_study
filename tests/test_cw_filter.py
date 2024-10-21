@@ -37,9 +37,12 @@ if __name__ == "__main__":
     spec_after = fft.time2freq(filtered_trace, sampling_rate = fs)
 
     fig, axs = plt.subplots(1, 2, figsize = (14, 6))
-    axs[0].plot(traces / units.mV)
-    axs[1].plot(freqs, np.abs(spec_before))
-    axs[1].plot(freqs, np.abs(spec_after))
+    axs[0].plot(traces / units.mV, label = "before")
+    axs[0].plot(filtered_trace / units.mV, label = "after")
+    axs[0].legend(loc = "best")
+    axs[1].plot(freqs, np.abs(spec_before), label = "before")
+    axs[1].plot(freqs, np.abs(spec_after), label = "after")
+    axs[1].legend(loc = "best")
     fig_path = os.path.abspath(f"{__file__}/../../figures")
     figname = f"{fig_path}/test_cw_filter"
     print(f"saving as {figname}")
