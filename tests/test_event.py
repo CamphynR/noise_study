@@ -20,14 +20,14 @@ if __name__ == '__main__':
                         type = int, default = 0)
     args = parser.parse_args()
 
-    ds = mattak.Dataset.Dataset(station = args.station, run = args.run, data_path = args.data_path,  backend = "uproot", verbose = True)
-    ds.setEntries((0, None))
+    ds = mattak.Dataset.Dataset(station = args.station, run = args.run, data_path = args.data_path,  backend = "pyroot", verbose = True)
+    ds.setEntries(args.event)
     print(f"dataset contains {ds.N()} entries")
 
     wfs = ds.wfs()
     print(f"shape of wfs is {wfs.shape}")
 
-    plt.plot(wfs[args.event][args.channel])
+    plt.plot(wfs[args.channel])
     plt.xlabel("sample")
     plt.ylabel("ADC counts")
     plt.title("raw waveform")

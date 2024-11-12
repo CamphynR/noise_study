@@ -7,3 +7,6 @@ field_test*
 config*
 vscode*
 variable_lists
+*.pdf
+data
+*.png

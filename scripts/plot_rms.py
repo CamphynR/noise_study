@@ -58,7 +58,10 @@ def plot_rms(rms : np.ndarray, ax, channel_mapping, channel_classes, skip_channe
         ax.legend(lines, ["with detector", "without detector"], loc = "best", fontsize = "x-large")
     ax.grid()
     channel_mapping_flat = [c for ch_list in channel_mapping for c in ch_list]
-    ch_ticks = channels[0:-1*len(skip_channels)]
+    if len(skip_channels) == 0:
+        ch_ticks = channels
+    else:
+        ch_ticks = channels[0:-1*len(skip_channels)]
     ax.set_xticks(ch_ticks, channel_mapping_flat)
     return
 
@@ -108,7 +111,7 @@ def plot_on_single(rms_list, args, channel_mapping, channel_classes, std_compari
         make_std_text(ax, channel_classes, std_comparison)
         station_nr = args.rms_files[1].split("_s", 1)[1][0:2]
     else:
-        station_nr = args.rms_files.split("_s", 1)[1][0:2]
+        station_nr = args.rms_files[0].split("/")[-1].split("station")[-1][0:2]
 
     fig.suptitle(f"station {station_nr}", fontsize = "xx-large")
     fig.tight_layout() 

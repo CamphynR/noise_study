@@ -10,6 +10,10 @@ Whether all variables or only the mean over all events is to be stored can be ch
 import os
 import time
 import logging
+
+import NuRadioReco.modules
+import NuRadioReco.modules.RNO_G
+import NuRadioReco.modules.RNO_G.hardwareResponseIncorporator
 logging.basicConfig(level = logging.WARNING)
 import glob
 import json
@@ -18,6 +22,8 @@ import pickle
 import argparse
 import datetime
 from typing import Callable
+import matplotlib.pyplot as plt
+from numba import jit
 
 from astropy.time import Time
 import NuRadioReco
@@ -26,9 +32,9 @@ from NuRadioReco.detector import detector
 from NuRadioReco.modules import channelBandPassFilter
 from NuRadioReco.modules.io.RNO_G.readRNOGDataMattak import readRNOGData
 from NuRadioReco.framework.base_trace import BaseTrace
+from NuRadioReco.modules.RNO_G.hardwareResponseIncorporator import hardwareResponseIncorporator
 
 import modules.cwFilter
-import modules.detectorFilter
 
 def get_output_shape(function : Callable[[BaseTrace], np.ndarray]):
     """
@@ -46,15 +52,19 @@ def get_output_shape(function : Callable[[BaseTrace], np.ndarray]):
         shape = (1,)
     return shape
 
-def initialise_variables_list(function, nr_of_stations, nr_of_channels = 24):
+def initialise_variables_list(function, nr_of_channels = 24):
     output_shape = get_output_shape(function)
-    list_shape = tuple([nr_of_stations, nr_of_channels] + list(output_shape))
+    list_shape = tuple([nr_of_channels] + list(output_shape))
     variables_list = np.zeros(list_shape)
     return variables_list
 
+@jit
+def rms_numba(trace):
+    return np.sqrt(np.mean(trace**2))
+
 def calculate_rms(channel):
     trace = channel.get_trace()
-    rms = np.sqrt(np.mean(trace**2))
+    rms = rms_numba(trace)
     return rms
 
 def calculate_trace(channel):
@@ -82,51 +92,47 @@ def parse_variables(reader, detector, config, args,
                     calculate_variable = calculate_trace,):
     clean_data = not args.skip_clean
     # initialise cleaning modules
-    cleaning_options = {"channelBandpassFilter" : NuRadioReco.modules.channelBandPassFilter.channelBandPassFilter, "detectorFilter" : modules.detectorFilter.detectorFilter, "cwFilter" : modules.cwFilter.cwFilter}
+    cleaning_options = {"channelBandpassFilter" : NuRadioReco.modules.channelBandPassFilter.channelBandPassFilter,
+                        "hardwareResponseIncorporator" : NuRadioReco.modules.RNO_G.hardwareResponseIncorporator.hardwareResponseIncorporator,
+                        "cwFilter" : modules.cwFilter.cwFilter}
     cleaning_modules = dict((cf, cleaning_options[cf]()) for cf in config["cleaning"].keys())
-
-    # channelBandPassFilter = NuRadioReco.modules.channelBandPassFilter.channelBandPassFilter()
-    # detectorFilter = modules.detectorFilter.detectorFilter()
-    # cwFilter = modules.cwFilter.cwFilter()
     
     for cleaning_key in cleaning_modules.keys():
         cleaning_modules[cleaning_key].begin( **config["cleaning"][cleaning_key]["begin_kwargs"] )
-
-    # detectorFilter.begin()
-    # cwFilter.begin()
     
     logger.debug("Starting calculation")
-    station_ids = np.array(detector.get_station_ids())
     if config["only_mean"]:
-        variables_list = initialise_variables_list(calculate_variable, len(station_ids))
-        std_list = initialise_variables_list(calculate_variable, len(station_ids))
+        variables_list = initialise_variables_list(calculate_variable)
+        std_list = initialise_variables_list(calculate_variable)
     else:
-        variables_list = [[[] for c in range(24)] for s in station_ids]
+        variables_list = [[] for c in range(24)]
 
     t0 = time.time()
 
     events_processed = 0
     for event in reader.run():
+
         events_processed += 1
         station_id = event.get_station_ids()[0]
         station = event.get_station(station_id)
-
+        # station_time = station.get_station_time()
+        # if events_processed == 1:
+        #     start_time = station_time
+        # dt = station_time - start_time
+        # if dt.to_value("jd", "long") > 365:
+        #     det.update(station_time)
+        
         if clean_data:
             for cleaning_key in cleaning_modules.keys():
                 cleaning_modules[cleaning_key].run(event, station, detector, **config["cleaning"][cleaning_key]["run_kwargs"] )
-
-            # channelBandPassFilter.run(event, station, detector, passband = passband)
-            # detectorFilter.run(event, station, detector)
-            # cwFilter.run(event, station, detector)
-    
+            
         for channel in station.iter_channels():
             channel_id = channel.get_id()
             if config["only_mean"]:
-                variables_list[station_id == station_ids, channel_id, :] += calculate_variable(channel)
-                std_list[station_id == station_ids, channel_id, :] += calculate_variable(channel)**2
+                variables_list[channel_id, :] += calculate_variable(channel)
+                std_list[channel_id, :] += calculate_variable(channel)**2
             else:
-                idx = np.where(station_id == station_ids)[0][0] # needed because here variables_list is list type
-                variables_list[idx][channel_id].append(calculate_variable(channel))
+                variables_list[channel_id].append(calculate_variable(channel))
 
     if config["only_mean"]:
         print(f"total events that passed filter {events_processed}")
@@ -157,6 +163,7 @@ def parse_variables(reader, detector, config, args,
 
             config_name = f"{dir}/config.json"
             # assumes only one station is run at a time
+            station_ids = np.array(detector.get_station_ids())
             filename = f"{dir}/station{station_ids[0]}"
             filename += ".pickle"
         print(f"Saving as {filename}")
@@ -181,6 +188,7 @@ if __name__ == "__main__":
                         default = 24)
     parser.add_argument("-r", "--run",
                         default = None)
+    parser.add_argument("--debug", action = "store_true")
     
     parser.add_argument("--config", help = "path to config.json file", default = "config.json")
     
@@ -192,20 +200,25 @@ if __name__ == "__main__":
         config = json.load(config_json)
 
     logger = logging.getLogger(__name__)
-    logging.basicConfig(level = logging.DEBUG)
+    log_level = logging.DEBUG if args.debug else logging.WARNING
+    logging.basicConfig(level = log_level)
 
 
     functions = dict(rms = calculate_rms, trace = calculate_trace, spec = calculate_spec)
     calculate_variable = functions[config["variable"]]
 
-    det = detector.Detector(source = "rnog_mongo",
-                            always_query_entire_description = False,
-                            database_connection = "RNOG_public",
-                            select_stations = args.station)
+    logger.debug("Initialising detector")
+    det = detector.Detector(source="rnog_mongo",
+                            always_query_entire_description=False,
+                            database_connection="RNOG_public",
+                            select_stations=args.station,
+                            log_level=log_level)
     
+    logger.debug("Updating detector time")
     det.update(Time(config["detector_time"]))
     
-    rnog_reader = readRNOGData(log_level = logging.DEBUG) #note if no runtable provided, runtable is queried from the database
+    # note if no runtable provided, runtable is queried from the database
+    rnog_reader = readRNOGData(log_level=log_level)
 
     if args.data_dir == None:
         data_dir = os.environ["RNO_G_DATA"]
@@ -219,12 +232,16 @@ if __name__ == "__main__":
     else:    
         root_dirs = glob.glob(f"{data_dir}/station{args.station}/run*[!run363]/") # run 363 is broken (100 waveforms with 200 event infos)
 
-    
-    selectors = lambda event_info : event_info.triggerType == "FORCE"
+    skip_events = config['skip_events']
+    print(skip_events['11'])
+    selectors = [lambda event_info : event_info.triggerType == "FORCE",
+                 lambda event_info : not event_info.eventNumber in skip_events[str(station)]]
+
     if len(config["run_time_range"]) == 0:
         run_time_range = None
     else:
         run_time_range = config["run_time_range"]
+    
     mattak_kw = dict(backend = "pyroot", read_daq_status = False)
     rnog_reader.begin(root_dirs,    
                       selectors = selectors,
