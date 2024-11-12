@@ -233,7 +233,7 @@ if __name__ == "__main__":
         skip_runs = config['skip_runs'][str(args.station)]
 
         root_dirs = glob.glob(f"{data_dir}/station{args.station}/run*[!run363]") # run 363 is broken (100 waveforms with 200 event infos)
-        root_dirs = [root_dir for root_dir in root dirs if not os.path.basename(root_dir).split("run")[-1] in skip_runs]
+        root_dirs = [root_dir for root_dir in root_dirs if not os.path.basename(root_dir).split("run")[-1] in skip_runs]
         print(root_dirs)
 
     skip_events = config['skip_events']
