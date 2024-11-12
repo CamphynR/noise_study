@@ -231,13 +231,9 @@ if __name__ == "__main__":
         root_dirs = glob.glob(f"{data_dir}/station{args.station}/run1/")
     else:
         skip_runs = config['skip_runs'][str(args.station)]
-
         root_dirs = glob.glob(f"{data_dir}/station{args.station}/run*[!run363]") # run 363 is broken (100 waveforms with 200 event infos)
-        root_dirs = [root_dir for root_dir in root_dirs if not os.path.basename(root_dir).split("run")[-1] in skip_runs]
-        print(root_dirs)
+        root_dirs = [root_dir for root_dir in root_dirs if not int(os.path.basename(root_dir).split("run")[-1]) in skip_runs]
 
-    skip_events = config['skip_events']
-    print(skip_events['11'])
     selectors = [lambda event_info : event_info.triggerType == "FORCE"]
 
     if len(config["run_time_range"]) == 0:
