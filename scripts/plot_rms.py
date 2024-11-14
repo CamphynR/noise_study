@@ -26,6 +26,7 @@ def make_std_text(ax, channel_classes, std_comparison, text_x = 0.02, text_y = 0
 
 def plot_rms(rms : np.ndarray, ax, channel_mapping, channel_classes, skip_channels = [], ls = "-", marker = "o", ax_type = "solo"):
 
+    print(rms.shape)
     channels = np.arange(24)
     rms_means = np.mean(rms, axis = -1) * units.V
     rms_std = np.std(rms, axis = -1)
@@ -36,9 +37,9 @@ def plot_rms(rms : np.ndarray, ax, channel_mapping, channel_classes, skip_channe
             if skip in ch_idx:
                 ch_idx.remove(skip)
 
-        last_idx = first_idx + len(rms_means[0, ch_idx])
+        last_idx = first_idx + len(rms_means[ch_idx])
         label = f"{ch_class}"
-        ax.errorbar(np.arange(first_idx, last_idx), rms_means[0, ch_idx] / units.mV, yerr = rms_std[0, ch_idx] / units.mV, label = label, marker = marker, ls = ls)
+        ax.errorbar(np.arange(first_idx, last_idx), rms_means[ch_idx] / units.mV, yerr = rms_std[ch_idx] / units.mV, label = label, marker = marker, ls = ls)
         first_idx = last_idx
 
     ax.set_xlabel("channels", size = "xx-large")
@@ -58,7 +59,10 @@ def plot_rms(rms : np.ndarray, ax, channel_mapping, channel_classes, skip_channe
         ax.legend(lines, ["with detector", "without detector"], loc = "best", fontsize = "x-large")
     ax.grid()
     channel_mapping_flat = [c for ch_list in channel_mapping for c in ch_list]
-    ch_ticks = channels[0:-1*len(skip_channels)]
+    if len(skip_channels) == 0:
+        ch_ticks = channels
+    else:
+        ch_ticks = channels[0:-1*len(skip_channels)]
     ax.set_xticks(ch_ticks, channel_mapping_flat)
     return
 
@@ -106,9 +110,9 @@ def plot_on_single(rms_list, args, channel_mapping, channel_classes, std_compari
         ax2.set_yticks(np.linspace(ax2.get_yticks()[0], ax2.get_yticks()[-1], len(ax.get_yticks())))
 
         make_std_text(ax, channel_classes, std_comparison)
-        station_nr = args.rms_files[1].split("_s", 1)[1][0:2]
+        station_nr = args.rms_files[1].split("/")[-1].split("station")[-1][0:2]
     else:
-        station_nr = args.rms_files.split("_s", 1)[1][0:2]
+        station_nr = args.rms_files[0].split("/")[-1].split("station")[-1][0:2]
 
     fig.suptitle(f"station {station_nr}", fontsize = "xx-large")
     fig.tight_layout() 
@@ -120,7 +124,7 @@ def plot_on_single(rms_list, args, channel_mapping, channel_classes, std_compari
         filename = args.rms_files[1].split("/")[-1].split(".")[0] + "_comparison"
 
 
-    fig_file = f"figures/plot_{filename}"
+    fig_file = f"figures/rms/station{station_nr}/plot_{filename}"
     print(f"Saving as {fig_file}")
     fig.savefig(fig_file, bbox_inches = "tight")
 
