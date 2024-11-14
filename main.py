@@ -78,7 +78,7 @@ def select_config(config_value : str, options : dict) -> np.ndarray:
     for option in options.keys():
         if config_value == option:
             return options[config]
-        
+
 def create_nested_dir(dir):
     try:
         os.makedirs(dir)
@@ -88,6 +88,13 @@ def create_nested_dir(dir):
         else:
             raise SystemError("os was unable to construct data folder hierarchy")
 
+def read_broken_runs(path):
+    with open(path, "rb") as file:
+        broken_runs = pickle.load(file)
+    return broken_runs
+
+
+
 def parse_variables(reader, detector, config, args,
                     calculate_variable = calculate_trace,):
     clean_data = not args.skip_clean
@@ -96,10 +103,10 @@ def parse_variables(reader, detector, config, args,
                         "hardwareResponseIncorporator" : NuRadioReco.modules.RNO_G.hardwareResponseIncorporator.hardwareResponseIncorporator,
                         "cwFilter" : modules.cwFilter.cwFilter}
     cleaning_modules = dict((cf, cleaning_options[cf]()) for cf in config["cleaning"].keys())
-    
+
     for cleaning_key in cleaning_modules.keys():
-        cleaning_modules[cleaning_key].begin( **config["cleaning"][cleaning_key]["begin_kwargs"] )
-    
+        cleaning_modules[cleaning_key].begin(**config["cleaning"][cleaning_key]["begin_kwargs"])
+
     logger.debug("Starting calculation")
     if config["only_mean"]:
         variables_list = initialise_variables_list(calculate_variable)
@@ -111,10 +118,11 @@ def parse_variables(reader, detector, config, args,
 
     events_processed = 0
     for event in reader.run():
-        print(event.event_info.triggerType)
         events_processed += 1
         station_id = event.get_station_ids()[0]
         station = event.get_station(station_id)
+        print(station.get_triggers())
+        print(event.get_run_number())
         # station_time = station.get_station_time()
         # if events_processed == 1:
         #     start_time = station_time
@@ -156,15 +164,15 @@ def parse_variables(reader, detector, config, args,
             dir = f"{save_dir}/{function_name}/run_{date}"
             if args.test:
                 dir += "_test"
-            if not clean_data:
-                dir += "_no_clean"
 
             create_nested_dir(dir)
 
-            config_name = f"{dir}/config.json"
+            config_name = f"{dir}/config_s{args.station}.json"
             # assumes only one station is run at a time
             station_ids = np.array(detector.get_station_ids())
             filename = f"{dir}/station{station_ids[0]}"
+            if not clean_data:
+                filename += "_no_filters"
             filename += ".pickle"
         print(f"Saving as {filename}")
         with open(filename, "wb") as f:
@@ -220,6 +228,10 @@ if __name__ == "__main__":
     # note if no runtable provided, runtable is queried from the database
     rnog_reader = readRNOGData(log_level=log_level)
 
+    broken_runs = read_broken_runs(config['broken_runs_dir'] + f"/station{args.station}.pickle")
+    broken_runs_list = [int(run) for run in broken_runs.keys()]
+    print(broken_runs_list)
+
     if args.data_dir == None:
         data_dir = os.environ["RNO_G_DATA"]
     else:
@@ -227,13 +239,14 @@ if __name__ == "__main__":
 
     if args.run is not None:
         root_dirs = glob.glob(f"{data_dir}/station{args.station}/run{args.run}/")
-    elif args.test:
-        root_dirs = glob.glob(f"{data_dir}/station{args.station}/run1/")
     else:
-        skip_runs = config['skip_runs'][str(args.station)]
         root_dirs = glob.glob(f"{data_dir}/station{args.station}/run*[!run363]") # run 363 is broken (100 waveforms with 200 event infos)
-        root_dirs = [root_dir for root_dir in root_dirs if not int(os.path.basename(root_dir).split("run")[-1]) in skip_runs]
+        root_dirs = [root_dir for root_dir in root_dirs if not int(os.path.basename(root_dir).split("run")[-1]) in broken_runs_list]
 
+    if args.test:
+        root_dirs = root_dirs[:10]
+
+    print(root_dirs)
     selectors = [lambda event_info : event_info.triggerType == "FORCE"]
 
     if len(config["run_time_range"]) == 0:
@@ -242,16 +255,16 @@ if __name__ == "__main__":
         run_time_range = config["run_time_range"]
     
     mattak_kw = dict(backend = "pyroot", read_daq_status = False)
-    rnog_reader.begin(root_dirs,    
-                      selectors = selectors,
-                      read_calibrated_data = config["calibration"] == "full",
+    rnog_reader.begin(root_dirs,
+                      selectors=selectors,
+                      read_calibrated_data=config["calibration"] == "full",
                       apply_baseline_correction="approximate",
-                      convert_to_voltage = config["calibration"] == "linear",
-                      select_runs = True,
-                      run_types = ["physics"],
-                      run_time_range = run_time_range,
-                      max_trigger_rate = 2 * units.Hz,
-                      mattak_kwargs = mattak_kw)
+                      convert_to_voltage=config["calibration"] == "linear",
+                      select_runs=True,
+                      run_types=["physics"],
+                      run_time_range=run_time_range,
+                      max_trigger_rate=2 * units.Hz,
+                      mattak_kwargs=mattak_kw)
 
     # cleaning parameters
     passband = [200 * units.MHz, 600 * units.MHz]      

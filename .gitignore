@@ -10,3 +10,6 @@ variable_lists
 *.pdf
 data
 *.png
+*/*.pdf
+*/*.png
+submit

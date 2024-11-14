@@ -1,3 +1,7 @@
+"""
+Script to plot a single rms array
+"""
+
 import os
 import glob
 import json
