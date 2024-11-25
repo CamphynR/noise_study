@@ -103,16 +103,17 @@ if __name__ == "__main__":
     channel_mapping = [[0, 1, 2, 3, 9, 10, 22, 23], [5, 6, 7], [4, 8, 11, 21], [12, 14, 15, 17, 18, 20], [13, 16, 19]]
     channel_classes = ["low Vpols", "upper Vpols", "Hpols", "downward LPDA", "upward LPDA"]
 
-    fig, ax = plt.subplots(figsize = (18, 16))
+    fig, ax = plt.subplots(figsize = (12, 8))
     plot_rms(rms_list, ax, channel_mapping=channel_mapping, channel_classes=channel_classes, config = config_run, skip_channels = args.skip_channels)
     try:
-        station_nr = config_run["station"]
+        station_nr = args.rms_pickle.split("/")[-1].split("station")[-1][0:2]
     except:
         station_nr = 0
 
     fig.suptitle(f"station {station_nr}", fontsize = "xx-large")
     fig.tight_layout()
 
-    figname = "rms_" + os.path.dirname(args.rms_pickle).split("/")[-1]
-    fig_file = f"figures/{figname}"
+    figname = "plot_" + args.rms_pickle.split("/")[-1].split(".")[0]
+    fig_file = f"figures/rms/station{station_nr}/{figname}"
+    print(f"saving as {fig_file}")
     fig.savefig(fig_file, bbox_inches = "tight")
