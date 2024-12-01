@@ -1,5 +1,5 @@
 Options to pass as variable:
-    "rms", "trace" and "spec"
+    "rms", "trace", "trace_hist" and "spec"
 
 Options to pass calibration:
     "linear" and "full"
@@ -10,18 +10,17 @@ use as event selection:
     trigger rate < 2 Hz (higher trigger rates are probably windy/human activity periods)
 
 BROKEN RUNS:
-station 24, run 363, event 105 is broken (200 header entries, but only 100 waveforms)
+The dataset contains several broken/incomplete runs. To filter these a python program sweeps over all runs and stores the run_nr of the ones that fail to load. These numbers are stored in broken_runs/stationX.pickle. The main.py program uses these broken run pickle files to ignore the broken runs. An example of a broken run is station 24, run 363, event 105 is broken (200 header entries, but only 100 waveforms)
 
 Calibration:
-Currently the full calibration only works in the uproot backend, pyroot struggles with memory issues
-Hence the code only uses the uproot backend for now (we also don't have VolCal files)
+The calibration is available but for season 22 data we choose to use a linear calibration. The reason is that the amount of bias scans in the chosen time frame is limited.
 
 Potential artifacts:
     Have a look at ringing, which can be caused be the deconvolution of the detector out of the trace
 
 What to do with G = 0? this represents e.g. a bandpass filter.
 This information is lost so what value should be used as placeholder or this should be deleted?
-For the purpose of thermal noise from ice I assume these can be set to 0 since the signal here is purely electronics noise?
+For the purpose of thermal noise from ice I assume these can be set to 0 since the signal here is purely electronics noise? -> The solution was to use a bandpass filter which anyways focuses on "normal" response values.
 
 BE CAREFUL WHEN TAKING MEANS
 When looking into noise taking the mean over many noise events will yield a trace very close to 0. This because the random fluctuations interfere destructively. One should only take the mean over the final calculated variable.

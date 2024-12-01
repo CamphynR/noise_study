@@ -73,7 +73,19 @@ def calculate_spec(channel):
     spec = channel.get_frequency_spectrum()
     return np.abs(spec)
 
-def calculate_trace_hist(channel, bins=128):
+def calculate_spec_hist(channel, range, nr_bins):
+    sampling_rate = channel.get_sampling_rate()
+    freqs = channel.get_frequencies()
+    spec = channel.get_frequency_spectrum()
+    spec = np.abs(spec)
+
+    bins = np.linspace(range[0], range[1], nr_bins)
+    print(bins)
+    bin_idxs = np.digitize(spec, bins)
+    return freqs, bin_idxs, sampling_rate
+
+def calculate_trace_hist(channel, range, nr_bins):
+    bins = np.linspace(range[0], range[1], nr_bins)
     trace = channel.get_trace()
     hist, edges = np.histogram(trace, bins=bins)
     return hist, edges
@@ -116,13 +128,16 @@ def parse_variables(reader, detector, config, args,
         variables_list = initialise_variables_list(calculate_variable)
         squares_list = initialise_variables_list(calculate_variable)
     else:
-        variables_list = [[] for c in range(24)]
+        variables_list = []
+    
+    clean = "raw" if args.skip_clean else "clean"
+    kwargs = config["variable_function_kwargs"][clean]
 
     # initialise data folder
 
     if config["save"]:
         # assumes function name to be calculate_*
-        function_name = calculate_variable.__name__.split("_")[1]
+        function_name = calculate_variable.__name__.split("_", 1)[1]
         save_dir = config["save_dir"]
         # defining a savename overwrites the data structure and simply saves everything in a file,
         # useful when running one script for multiple stations
@@ -139,11 +154,11 @@ def parse_variables(reader, detector, config, args,
             config_name = f"{dir}/config.json"
             station_ids = np.array(detector.get_station_ids())
             for station_id in station_ids:
-                station_dir = f"{dir}/station{station_id}"
+                station_dir = f"{dir}/station{station_id}/{clean}"
                 if not os.path.exists(station_dir):
-                    os.mkdir(station_dir)
+                    os.makedirs(station_dir)
 
-        # copies the config used for future refe_nrrence
+        # copies the config used for future reference
         settings_dict = {**config, **vars(args)}
         with open(config_name, "w") as f:
             json.dump(settings_dict, f)
@@ -163,9 +178,7 @@ def parse_variables(reader, detector, config, args,
         if prev_run_nr != run_nr:
             if config["save"]:
                 logger.debug(f"saving since {run_nr} != {prev_run_nr}")
-                filename = f"{dir}/station{station_id}/run{prev_run_nr}"
-                if not clean_data:
-                    filename += "_no_filters"
+                filename = f"{dir}/station{station_id}/{clean}/run{prev_run_nr}"
                 filename += ".pickle"
                 print(f"Saving as {filename}")
                 with open(filename, "wb") as f:
@@ -175,7 +188,7 @@ def parse_variables(reader, detector, config, args,
                     variables_list = initialise_variables_list(calculate_variable)
                     squares_list = initialise_variables_list(calculate_variable)
                 else:
-                    variables_list = [[] for c in range(24)]
+                    variables_list = []
 
         # there should be a mechanism in the detector code which makes sure
         # not to reload the detector for the same time stamps
@@ -185,22 +198,25 @@ def parse_variables(reader, detector, config, args,
         if clean_data:
             for cleaning_key in cleaning_modules.keys():
                 cleaning_modules[cleaning_key].run(event, station, detector, **config["cleaning"][cleaning_key]["run_kwargs"])
-        
+       
+        var_channels_per_event = []
         for channel in station.iter_channels():
             channel_id = channel.get_id()
             if config["only_mean"]:
-                variables_list[channel_id, :] += calculate_variable(channel)
-                squares_list[channel_id, :] += calculate_variable(channel)**2
+                variables_list[channel_id, :] += calculate_variable(channel, **kwargs)
+                squares_list[channel_id, :] += calculate_variable(channel, **kwargs)**2
             else:
-                variables_list[channel_id].append(calculate_variable(channel))
+                var_channels_per_event.append(calculate_variable(channel, **kwargs))
 
+        variables_list.append(var_channels_per_event)
+        
         prev_run_nr = event.get_run_number()
 
 
 
     if config["save"]:
         logger.debug(f"saving since {run_nr} != {prev_run_nr}")
-        filename = f"{dir}/station{station_id}/run{prev_run_nr}"
+        filename = f"{dir}/station{station_id}/{clean}/run{prev_run_nr}"
         if not clean_data:
             filename += "_no_filters"
         filename += ".pickle"
@@ -219,7 +235,7 @@ def parse_variables(reader, detector, config, args,
     dt = time.time() - t0
     logger.debug(f"Main calculation loop takes {dt}")
 
-    return np.array(variables_list)
+    return variables_list
 
 
 
@@ -249,7 +265,11 @@ if __name__ == "__main__":
     logging.basicConfig(level = log_level)
 
 
-    functions = dict(rms = calculate_rms, trace = calculate_trace, spec = calculate_spec, trace_hist = calculate_trace_hist)
+    functions = dict(rms = calculate_rms,
+                     trace = calculate_trace,
+                     spec = calculate_spec,
+                     trace_hist = calculate_trace_hist,
+                     spec_hist = calculate_spec_hist)
     calculate_variable = functions[config["variable"]]
 
     logger.debug("Initialising detector")
@@ -281,7 +301,7 @@ if __name__ == "__main__":
         root_dirs = [root_dir for root_dir in root_dirs if not int(os.path.basename(root_dir).split("run")[-1]) in broken_runs_list]
 
     if args.test:
-        root_dirs = root_dirs[:4]
+        root_dirs = root_dirs[:100]
 
     print(root_dirs)
     selectors = [lambda event_info : event_info.triggerType == "FORCE"]
@@ -308,4 +328,4 @@ if __name__ == "__main__":
 
 
     rms = parse_variables(rnog_reader, det, config=config, args=args,
-                          calculate_variable = calculate_variable)
+                          calculate_variable=calculate_variable)

@@ -15,6 +15,12 @@ def open_pickle(pickle_file):
 
 # Theoretical functions
 
+def reduce_by_db(variable, db):
+    db_coeff = 10**(-1*db/20.)
+    variable = db_coeff * variable
+    return variable
+
+
 def rms_from_temp(noise_temp_channel, detector, station, channel, include_amps=False):
     """
     This is Nyquist noise assuming a resistance of 50 Ohm, the bandpass in the formula
