@@ -87,7 +87,6 @@ if __name__ == "__main__":
 
     detectorFilter = detectorFilter()
     detectorFilter.begin(det = det)
-    print(detectorFilter)
 
     for event in rnog_reader.run():
         station_id = event.get_station_ids()[0]

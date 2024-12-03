@@ -16,6 +16,7 @@ import pickle
 import argparse
 import datetime
 import numpy as np
+from sys import getsizeof
 from typing import Callable
 from numba import jit
 from astropy.time import Time
@@ -80,7 +81,6 @@ def calculate_spec_hist(channel, range, nr_bins):
     spec = np.abs(spec)
 
     bins = np.linspace(range[0], range[1], nr_bins)
-    print(bins)
     bin_idxs = np.digitize(spec, bins)
     return freqs, bin_idxs, sampling_rate
 
@@ -160,8 +160,9 @@ def parse_variables(reader, detector, config, args,
 
         # copies the config used for future reference
         settings_dict = {**config, **vars(args)}
-        with open(config_name, "w") as f:
-            json.dump(settings_dict, f)
+        if not os.path.isfile(config_name):
+            with open(config_name, "w") as f:
+                json.dump(settings_dict, f)
 
     t0 = time.time()
 
@@ -175,6 +176,7 @@ def parse_variables(reader, detector, config, args,
         station = event.get_station(station_id)
         logger.debug(f"Trigger is: {station.get_triggers()}")
         logger.debug(f"Run number is {event.get_run_number()}")
+        print(f"variables_list size is {getsizeof(variables_list)}")
         if prev_run_nr != run_nr:
             if config["save"]:
                 logger.debug(f"saving since {run_nr} != {prev_run_nr}")
@@ -287,7 +289,6 @@ if __name__ == "__main__":
 
     broken_runs = read_broken_runs(config['broken_runs_dir'] + f"/station{args.station}.pickle")
     broken_runs_list = [int(run) for run in broken_runs.keys()]
-    print(broken_runs_list)
 
     if args.data_dir is None:
         data_dir = os.environ["RNO_G_DATA"]
@@ -301,9 +302,8 @@ if __name__ == "__main__":
         root_dirs = [root_dir for root_dir in root_dirs if not int(os.path.basename(root_dir).split("run")[-1]) in broken_runs_list]
 
     if args.test:
-        root_dirs = root_dirs[:100]
+        root_dirs = root_dirs[:3]
 
-    print(root_dirs)
     selectors = [lambda event_info : event_info.triggerType == "FORCE"]
 
     if len(config["run_time_range"]) == 0:
@@ -312,7 +312,6 @@ if __name__ == "__main__":
         run_time_range = config["run_time_range"]
 
     calibration = config["calibration"][str(args.station)]
-    print(calibration)
 
     mattak_kw = dict(backend="pyroot", read_daq_status=False, read_run_info=False)
     rnog_reader.begin(root_dirs,
