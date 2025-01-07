@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import numpy as np
 import scipy.stats as stats
+from scipy.optimize import curve_fit
 
 from NuRadioReco.utilities import units
 from utility_functions import open_pickle
@@ -61,21 +62,23 @@ if __name__ == "__main__":
         hist_sum, edges = read_hist_from_data_dir(args.data_dir[0])
 
 
-    x = np.linspace(edges[0], edges[-1], 128)
-    mu = 0
-    sigma = 10
-    ref_gaussian = stats.norm.pdf(x, mu, sigma)
+    def para(x, a, b):
+        return -a*x**2 + b
 
-
-    pdf = PdfPages("Amplitude_distributions_log.pdf")
+    pdf = PdfPages("figures/amplitudes/amplitude_distributions_log.pdf")
     
     for ch in args.channel:
-
+        centers = edges[ch, :-1] + np.diff(edges[ch])[0]/2
+        param, cov = curve_fit(para,
+                               centers[np.where(hist_sum[ch]!=0)],
+                               np.log10(hist_sum[ch, hist_sum[ch]!=0]))
         fig, ax = plt.subplots()
  
         if len(args.data_dir) == 2:
             ax.stairs(hist_sum_raw[ch], edges_raw[ch], color = "red", label="raw")
         ax.stairs(hist_sum[ch], edges[ch], label="clean")
+        ax.plot(centers, 10**para(centers, param[0], param[1]))
+
         ax.legend(loc = "best")
         ax.set_yscale("log")
         ax.set_xlabel("Amplitude / mV", size = "large")

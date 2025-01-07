@@ -52,7 +52,7 @@ if __name__ == "__main__":
     if len(args.channel) == 24:
         channels_string = "all_channels"
     else:
-        channels_string = "ch_" + "_".join(c for c in args.channel)
+        channels_string = "ch_" + "_".join(str(c) for c in args.channel)
     figname = f"{fig_path}/response_station{args.station}_{channels_string}_year{args.year}.png"
     print(f"Saving as {figname}")
     fig.savefig(figname) 
