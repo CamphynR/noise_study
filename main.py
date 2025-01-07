@@ -16,12 +16,12 @@ import pickle
 import argparse
 import datetime
 import subprocess
-import numpy as np
-from sys import getsizeof
+import tracemalloc
 from typing import Callable
+
+import numpy as np
 from numba import jit
 from astropy.time import Time
-
 import NuRadioReco
 import NuRadioReco.modules
 import NuRadioReco.modules.RNO_G
@@ -84,6 +84,7 @@ def calculate_spec_hist(channel, range, nr_bins):
     bins = np.linspace(range[0], range[1], nr_bins)
     bin_idxs = np.digitize(spec, bins)
     return freqs, bin_idxs, sampling_rate
+    
 
 def calculate_trace_hist(channel, range, nr_bins):
     bins = np.linspace(range[0], range[1], nr_bins)
@@ -96,14 +97,52 @@ def select_config(config_value : str, options : dict) -> np.ndarray:
         if config_value == option:
             return options[config]
 
-def create_nested_dir(dir):
+def create_nested_dir(directory):
     try:
-        os.makedirs(dir)
+        os.makedirs(directory)
     except:
-        if os.path.isdir(dir):
+        if os.path.isdir(directory):
             pass
         else:
             raise SystemError("os was unable to construct data folder hierarchy")
+
+
+
+def construct_folder_hierarchy(config, args):
+    if not config["save"]:
+        return
+
+    # assumes function name to be calculate_*
+    function_name = config["variable"]
+    # first save to /tmp directory native to computer node and afterwards copy to pnfs
+    save_dir = "/tmp/data"
+    # defining a savename overwrites the data structure and simply saves everything in a file,
+    # useful when running one script for multiple stations
+    date = datetime.datetime.now().strftime("%Y_%m_%d")
+    directory = f"{save_dir}/{function_name}/job_{date}"
+    if args.test:
+        directory += "_test"
+    appendix = "_" + args.filename_appendix
+    directory += appendix
+    create_nested_dir(directory)
+
+    # fill directory
+    config_name = f"{directory}/config.json"
+    clean = "raw" if args.skip_clean else "clean"
+    station_dir = f"{directory}/station{args.station}/{clean}"
+    if not os.path.exists(station_dir):
+        os.makedirs(station_dir)
+
+    # copies the config used for future reference
+    settings_dict = {**config, **vars(args)}
+    if not os.path.isfile(config_name):
+        with open(config_name, "w") as f:
+            json.dump(settings_dict, f)
+
+    print(f"directory is {directory}")
+    return directory
+
+
 
 def read_broken_runs(path):
     with open(path, "rb") as file:
@@ -111,9 +150,37 @@ def read_broken_runs(path):
     return broken_runs
 
 
+def parse_data(config, args, logger):
+    """
+    Most general wrapper for parsing through RNO-G data using the 
+    RNOGReadData class from NuRadio
+    """
+    # Options to clean, to add a cleaning module add it to this dictionary and specify it's options in the config file
+    cleaning_options = {"channelBandpassFilter" : NuRadioReco.modules.channelBandPassFilter.channelBandPassFilter,
+                        "hardwareResponseIncorporator" : NuRadioReco.modules.RNO_G.hardwareResponseIncorporator.hardwareResponseIncorporator,
+                        "cwFilter" : modules.cwFilter.cwFilter}
+
+    clean_data = not args.skip_clean
+    if clean_data:
+        logger.debug("Setting up cleaning modules")
+        # initialise cleaning modules selected in config
+        cleaning_modules = dict((cf, cleaning_options[cf]()) for cf in config["cleaning"].keys())
+        for cleaning_key in cleaning_modules.keys():
+            cleaning_modules[cleaning_key].begin(**config["cleaning"][cleaning_key]["begin_kwargs"])
+
+    # actual calculations take place here
+    
+
+    if config["save"]: 
+        src_dir = "/tmp/data/"
+        dest_dir = config["save_dir"]
+        subprocess.call(["rsync", "-vuar", src_dir, dest_dir])
+    
+
 
 def parse_variables(reader, detector, config, args,
-                    calculate_variable = calculate_trace,):
+                    calculate_variable = calculate_trace,
+                    inter_event_calculation = None):
     clean_data = not args.skip_clean
     # initialise cleaning modules
     cleaning_options = {"channelBandpassFilter" : NuRadioReco.modules.channelBandPassFilter.channelBandPassFilter,
@@ -134,38 +201,8 @@ def parse_variables(reader, detector, config, args,
     clean = "raw" if args.skip_clean else "clean"
     kwargs = config["variable_function_kwargs"][clean]
 
-    # initialise data folder
-
-    if config["save"]:
-        # assumes function name to be calculate_*
-        function_name = calculate_variable.__name__.split("_", 1)[1]
-#        save_dir = config["save_dir"]
-        # first save to /tmp directory native to computer node and afterwards copy to pnfs
-        save_dir = "/tmp"
-        # defining a savename overwrites the data structure and simply saves everything in a file,
-        # useful when running one script for multiple stations
-        if config["savename"]:
-            filename = f"{save_dir}/variable_lists/{function_name}_lists/{config['savename']}.pickle"
-        else:
-            date = datetime.datetime.now().strftime("%Y_%m_%d")
-            dir = f"{save_dir}/{function_name}/job_{date}"
-            if args.test:
-                dir += "_test"
-            create_nested_dir(dir)
-
-            # fill directory
-            config_name = f"{dir}/config.json"
-            station_ids = np.array(detector.get_station_ids())
-            for station_id in station_ids:
-                station_dir = f"{dir}/station{station_id}/{clean}"
-                if not os.path.exists(station_dir):
-                    os.makedirs(station_dir)
-
-        # copies the config used for future reference
-        settings_dict = {**config, **vars(args)}
-        if not os.path.isfile(config_name):
-            with open(config_name, "w") as f:
-                json.dump(settings_dict, f)
+    # initialise data folder structure and copy config
+    directory = construct_folder_hierarchy(config, args)
 
     t0 = time.time()
 
@@ -179,11 +216,15 @@ def parse_variables(reader, detector, config, args,
         station = event.get_station(station_id)
         logger.debug(f"Trigger is: {station.get_triggers()}")
         logger.debug(f"Run number is {event.get_run_number()}")
-        print(f"variables_list size is {getsizeof(variables_list)/1000} kB")
+
         if prev_run_nr != run_nr:
+            if inter_event_calculation:
+                # here you then make the histogram
+                variables_list = inter_event_calculation(variables_list)
+
             if config["save"]:
                 logger.debug(f"saving since {run_nr} != {prev_run_nr}")
-                filename = f"{dir}/station{station_id}/{clean}/run{prev_run_nr}"
+                filename = f"{directory}/station{station_id}/{clean}/run{prev_run_nr}"
                 filename += ".pickle"
                 print(f"Saving as {filename}")
                 with open(filename, "wb") as f:
@@ -193,7 +234,7 @@ def parse_variables(reader, detector, config, args,
                     variables_list = initialise_variables_list(calculate_variable)
                     squares_list = initialise_variables_list(calculate_variable)
                 else:
-                    variables_list = []
+                    variables_list.clear()
 
         # there should be a mechanism in the detector code which makes sure
         # not to reload the detector for the same time stamps
@@ -221,13 +262,13 @@ def parse_variables(reader, detector, config, args,
 
     if config["save"]:
         logger.debug(f"saving since {run_nr} != {prev_run_nr}")
-        filename = f"{dir}/station{station_id}/{clean}/run{prev_run_nr}"
+        filename = f"{directory}/station{station_id}/{clean}/run{prev_run_nr}"
         filename += ".pickle"
         print(f"Saving as {filename}")
         with open(filename, "wb") as f:
             pickle.dump(dict(time=station.get_station_time(), var=variables_list), f)
         
-        src_dir = "/tmp/"
+        src_dir = "/tmp/data/"
         dest_dir = config["save_dir"]
         subprocess.call(["rsync", "-vuar", src_dir, dest_dir])
         
@@ -245,7 +286,17 @@ def parse_variables(reader, detector, config, args,
 
 
 
+def print_malloc_snapshot(max_nr_stats=10):
+    snapshot = tracemalloc.take_snapshot()
+    top_stats = snapshot.statistics("lineno")
+    print("top 10")
+    for stat in top_stats[:max_nr_stats]:
+        print(stat)
+
+
 if __name__ == "__main__":
+    tracemalloc.start()
+
     parser = argparse.ArgumentParser(prog = "%(prog)s",
                                      usage = "placeholder")
     parser.add_argument("-d", "--data_dir",
@@ -258,6 +309,7 @@ if __name__ == "__main__":
     parser.add_argument("--debug", action = "store_true")
     
     parser.add_argument("--config", help = "path to config.json file", default = "config.json")
+    parser.add_argument("--filename_appendix", default = "")
     
     parser.add_argument("--skip_clean", action = "store_true")
     parser.add_argument("--test", action = "store_true", help = "enables test mode, which only uses one run of data ")
@@ -306,7 +358,7 @@ if __name__ == "__main__":
         root_dirs = [root_dir for root_dir in root_dirs if not int(os.path.basename(root_dir).split("run")[-1]) in broken_runs_list]
 
     if args.test:
-        root_dirs = root_dirs[:3]
+        root_dirs = root_dirs[:10]
 
     selectors = [lambda event_info : event_info.triggerType == "FORCE"]
 
@@ -318,6 +370,8 @@ if __name__ == "__main__":
     calibration = config["calibration"][str(args.station)]
 
     mattak_kw = dict(backend="pyroot", read_daq_status=False, read_run_info=False)
+
+
     rnog_reader.begin(root_dirs,
                       selectors=selectors,
                       read_calibrated_data=calibration == "full",
@@ -330,5 +384,9 @@ if __name__ == "__main__":
                       mattak_kwargs=mattak_kw)
 
 
+
+
     rms = parse_variables(rnog_reader, det, config=config, args=args,
                           calculate_variable=calculate_variable)
+    
+    print_malloc_snapshot()

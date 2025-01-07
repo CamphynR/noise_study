@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 import pickle
 import numpy as np
 from scipy import constants
@@ -12,6 +14,18 @@ def open_pickle(pickle_file):
     return content
 
 
+def find_config(data_dir):
+    """
+    function that yields config file, assuming the config to be stored on the same level as the stationX folder.
+    """
+    job_folder = Path(data_dir).parents[1]
+    return str(job_folder) + "/config.json"
+
+
+def open_config(config_path):
+    with open(config_path, "r") as config_json:
+        config = json.load(config_json)
+    return config
 
 # Theoretical functions
 
