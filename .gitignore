@@ -13,3 +13,4 @@ data
 */*.pdf
 */*.png
 submit
+trace_mem.txt
