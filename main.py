@@ -4,8 +4,9 @@ One can choose cleaning modules (either homemade or directly frim NuRadio) and a
 run over all available data, calculate the variable and store it in a pickle file.
 
 Whether all variables or only the mean over all events is to be stored can be chosen in the argument parser using the --only_mean flag
-"""
 
+The whole script uses NuRadio base units (freq in GHz, time in ns)
+"""
 
 import os
 import time
@@ -19,6 +20,7 @@ import subprocess
 import tracemalloc
 from typing import Callable
 
+import matplotlib.pyplot as plt
 import numpy as np
 from numba import jit
 from astropy.time import Time
@@ -75,19 +77,20 @@ def calculate_spec(channel):
     spec = channel.get_frequency_spectrum()
     return np.abs(spec)
 
-def calculate_spec_hist(channel, range, nr_bins):
+def calculate_spec_hist(channel, hist_range, nr_bins):
     sampling_rate = channel.get_sampling_rate()
     freqs = channel.get_frequencies()
     spec = channel.get_frequency_spectrum()
     spec = np.abs(spec)
 
-    bins = np.linspace(range[0], range[1], nr_bins)
-    bin_idxs = np.digitize(spec, bins)
+    bin_edges = np.linspace(hist_range[0], hist_range[1], nr_bins + 1)
+    # digitize takes INNER edges
+    bin_idxs = np.digitize(spec, bin_edges[1:-1])
     return freqs, bin_idxs, sampling_rate
     
 
-def calculate_trace_hist(channel, range, nr_bins):
-    bins = np.linspace(range[0], range[1], nr_bins)
+def calculate_trace_hist(channel, hist_range, nr_bins):
+    bins = np.linspace(hist_range[0], hist_range[1], nr_bins)
     trace = channel.get_trace()
     hist, edges = np.histogram(trace, bins=bins)
     return hist, edges
@@ -100,7 +103,7 @@ def select_config(config_value : str, options : dict) -> np.ndarray:
 def create_nested_dir(directory):
     try:
         os.makedirs(directory)
-    except:
+    except OSError:
         if os.path.isdir(directory):
             pass
         else:
@@ -150,10 +153,46 @@ def read_broken_runs(path):
     return broken_runs
 
 
-def parse_data(config, args, logger):
+
+def populate_spec_amplitude_histogram(reader, detector, config, args, logger, directory,
+                                      hist_range, nr_bins):
+    # this assumes these parameters stay constant over the chosen runtime!
+    station_info = detector.get_station(args.station)
+    nr_channels = len(station_info["channels"])
+    # assumes the same nr of smaples and sampling rate between channels
+    # assumtion due to sampling parameters being stored on the station_info level
+    nr_samples = station_info["number_of_samples"]
+    sampling_rate = station_info["sampling_rate"]
+    frequencies = np.fft.rfftfreq(nr_samples, d=1./sampling_rate)
+    
+    # populate histogram per channel and per frequency
+    # so shape of data structure storing histograms is (channels, frequencies, bins)
+    spec_amplitude_histograms = np.zeros((nr_channels, len(frequencies), nr_bins))
+
+    # construct bin edges of the histograms
+    bin_edges = np.linspace(hist_range[0], hist_range[1], nr_bins + 1)
+
+    for event in reader.run():
+        station = event.get_station(args.station)
+        
+        for channel in station.iter_channels():
+            channel_id = channel.get_id()
+            ch_frequencies = channel.get_frequencies()
+            assert np.all(frequencies == ch_frequencies)
+
+            spectrum = channel.get_frequency_spectrum()
+            spectrum = np.abs(spectrum)
+            # to get a bin number you shoyld only pass the INNER edges to np.searchsorted
+            bin_indices = np.searchsorted(bin_edges[1:-1], spectrum)
+            spec_amplitude_histograms[channel_id, np.arange(len(frequencies)), bin_indices] += 1
+
+    
+    return spec_amplitude_histograms
+
+
+def parse_data(reader, detector, config, args, logger,
+               calculation_function):
     """
-    Most general wrapper for parsing through RNO-G data using the 
-    RNOGReadData class from NuRadio
     """
     # Options to clean, to add a cleaning module add it to this dictionary and specify it's options in the config file
     cleaning_options = {"channelBandpassFilter" : NuRadioReco.modules.channelBandPassFilter.channelBandPassFilter,
@@ -161,26 +200,41 @@ def parse_data(config, args, logger):
                         "cwFilter" : modules.cwFilter.cwFilter}
 
     clean_data = not args.skip_clean
+    clean = "raw" if args.skip_clean else "clean"
     if clean_data:
         logger.debug("Setting up cleaning modules")
         # initialise cleaning modules selected in config
         cleaning_modules = dict((cf, cleaning_options[cf]()) for cf in config["cleaning"].keys())
         for cleaning_key in cleaning_modules.keys():
             cleaning_modules[cleaning_key].begin(**config["cleaning"][cleaning_key]["begin_kwargs"])
+    
+        
+    # construct data folder structure, the function that does the calculations should save the output here
+    directory = construct_folder_hierarchy(config, args)
 
     # actual calculations take place here
-    
+    # define variable options in kwargs in config file
+    # define general behaviour in the calculation_function
+    function_kwargs = config["variable_function_kwargs"][clean]
+    calculated_output = calculation_function(reader, detector, config, args, logger, directory, 
+                                             **function_kwargs)
 
-    if config["save"]: 
-        src_dir = "/tmp/data/"
-        dest_dir = config["save_dir"]
-        subprocess.call(["rsync", "-vuar", src_dir, dest_dir])
+#    if config["save"]:
+#        src_dir = "/tmp/data/"
+#        dest_dir = config["save_dir"]
+#        subprocess.call(["rsync", "-vuar", src_dir, dest_dir])
+
+    return calculated_output
     
 
 
 def parse_variables(reader, detector, config, args,
                     calculate_variable = calculate_trace,
                     inter_event_calculation = None):
+    """
+    More basic wrapper for parsing through data. This only calculates variables on an event per event basis,
+    there is no option to combine calculations between events.
+    """
     clean_data = not args.skip_clean
     # initialise cleaning modules
     cleaning_options = {"channelBandpassFilter" : NuRadioReco.modules.channelBandPassFilter.channelBandPassFilter,
@@ -218,9 +272,6 @@ def parse_variables(reader, detector, config, args,
         logger.debug(f"Run number is {event.get_run_number()}")
 
         if prev_run_nr != run_nr:
-            if inter_event_calculation:
-                # here you then make the histogram
-                variables_list = inter_event_calculation(variables_list)
 
             if config["save"]:
                 logger.debug(f"saving since {run_nr} != {prev_run_nr}")
@@ -386,7 +437,17 @@ if __name__ == "__main__":
 
 
 
-    rms = parse_variables(rnog_reader, det, config=config, args=args,
-                          calculate_variable=calculate_variable)
+#    rms = parse_variables(rnog_reader, det, config=config, args=args,
+#                          calculate_variable=calculate_variable)
+    output = parse_data(rnog_reader, det, config=config, args=args, logger=logger, calculation_function=populate_spec_amplitude_histogram)
     
+    print(output.shape)
+    print(output[0][400])
+
+    function_kwargs = config["variable_function_kwargs"]["clean"]
+    hist_range= function_kwargs["hist_range"]
+    nr_bins= function_kwargs["nr_bins"]
+    bin_edges = np.linspace(hist_range[0], hist_range[1], nr_bins + 1)
+    plt.stairs(output[0, 400], edges=bin_edges) 
+    plt.savefig("test")
     print_malloc_snapshot()
