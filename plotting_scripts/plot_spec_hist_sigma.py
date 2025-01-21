@@ -51,6 +51,7 @@ if __name__ == "__main__":
     clean = args.data_dir.split("/")[-1]
 
     config_path = find_config(args.data_dir)
+    print(config_path)
     with open(config_path) as config_file:
         config = json.load(config_file)
 
@@ -81,13 +82,21 @@ if __name__ == "__main__":
     for ch in range(24):
         sigmas = []
         sigmas_std = []
+        freqs_masked = []
         for freq in freqs:
             freq_idx = np.digitize(freq, freqs)
-            param, cov = curve_fit(rayleigh, bin_centers, spec_hists[ch, freq_idx-1], p0 = [0.01])
-            sigmas.append(param[0])
-            sigmas_std.append(np.sqrt(cov[0, 0]))
+            print(freq_idx)
+            print(len(spec_hists))
+            print(spec_hists.shape)
+            try:
+                param, cov = curve_fit(rayleigh, bin_centers, spec_hists[ch, freq_idx-1], p0 = [0.01])
+                sigmas.append(param[0])
+                sigmas_std.append(np.sqrt(cov[0, 0]))
+                freqs_masked.append(freq)
+            except:
+                continue
         fig, ax = plt.subplots()
-        ax.errorbar(freqs, sigmas, yerr = sigmas_std)
+        ax.errorbar(freqs_masked, sigmas, yerr = sigmas_std)
         ax.set_title(f"Channel {ch}")
         ax.set_xlabel("freq / GHz")
         ax.set_ylabel(r"$\sigma$")
