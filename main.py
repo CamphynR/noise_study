@@ -31,6 +31,7 @@ import NuRadioReco.modules.RNO_G.hardwareResponseIncorporator
 from NuRadioReco.utilities import units
 from NuRadioReco.detector import detector
 from NuRadioReco.modules import channelBandPassFilter
+from NuRadioReco.modules.io.eventReader import eventReader
 from NuRadioReco.modules.io.RNO_G.readRNOGDataMattak import readRNOGData
 from NuRadioReco.framework.base_trace import BaseTrace
 from NuRadioReco.modules.RNO_G.hardwareResponseIncorporator import hardwareResponseIncorporator
@@ -125,8 +126,9 @@ def construct_folder_hierarchy(config, args):
     directory = f"{save_dir}/{function_name}/job_{date}"
     if args.test:
         directory += "_test"
-    appendix = "_" + args.filename_appendix
-    directory += appendix
+    if args.filename_appendix:
+        appendix = "_" + args.filename_appendix
+        directory += appendix
     create_nested_dir(directory)
 
     # fill directory
@@ -154,16 +156,19 @@ def read_broken_runs(path):
 
 
 
-def populate_spec_amplitude_histogram(reader, detector, config, args, logger, directory,
-                                      hist_range, nr_bins):
+def populate_spec_amplitude_histogram(reader, detector, config, args, logger, directory, cleaning_modules, hist_range, nr_bins):
     # this assumes these parameters stay constant over the chosen runtime!
-    station_info = detector.get_station(args.station)
+    station_id = args.station
+    station_info = detector.get_station(station_id)
     nr_channels = len(station_info["channels"])
     # assumes the same nr of smaples and sampling rate between channels
     # assumtion due to sampling parameters being stored on the station_info level
     nr_samples = station_info["number_of_samples"]
     sampling_rate = station_info["sampling_rate"]
     frequencies = np.fft.rfftfreq(nr_samples, d=1./sampling_rate)
+    
+    clean_data = not args.skip_clean
+    clean = "raw" if args.skip_clean else "clean"
     
     # populate histogram per channel and per frequency
     # so shape of data structure storing histograms is (channels, frequencies, bins)
@@ -174,6 +179,11 @@ def populate_spec_amplitude_histogram(reader, detector, config, args, logger, di
 
     for event in reader.run():
         station = event.get_station(args.station)
+        
+        if clean_data:
+            for cleaning_key in cleaning_modules.keys():
+                cleaning_modules[cleaning_key].run(event, station, detector,
+                                                   **config["cleaning"][cleaning_key]["run_kwargs"])
         
         for channel in station.iter_channels():
             channel_id = channel.get_id()
@@ -186,8 +196,18 @@ def populate_spec_amplitude_histogram(reader, detector, config, args, logger, di
             bin_indices = np.searchsorted(bin_edges[1:-1], spectrum)
             spec_amplitude_histograms[channel_id, np.arange(len(frequencies)), bin_indices] += 1
 
-    
-    return spec_amplitude_histograms
+    result_dict = {"time" : station.get_station_time(),
+                   "freq" : frequencies,
+                   "spec_amplitude_histograms" : spec_amplitude_histograms}
+
+    if config["save"]:
+        filename = f"{directory}/station{station_id}/{clean}/spec_amplitude_histograms"
+        filename += ".pickle"
+        print(f"Saving as {filename}")
+        with open(filename, "wb") as f:
+            pickle.dump(result_dict, f)
+
+    return result_dict    
 
 
 def parse_data(reader, detector, config, args, logger,
@@ -216,13 +236,12 @@ def parse_data(reader, detector, config, args, logger,
     # define variable options in kwargs in config file
     # define general behaviour in the calculation_function
     function_kwargs = config["variable_function_kwargs"][clean]
-    calculated_output = calculation_function(reader, detector, config, args, logger, directory, 
-                                             **function_kwargs)
+    calculated_output = calculation_function(reader, detector, config, args, logger, directory, cleaning_modules, **function_kwargs)
 
-#    if config["save"]:
-#        src_dir = "/tmp/data/"
-#        dest_dir = config["save_dir"]
-#        subprocess.call(["rsync", "-vuar", src_dir, dest_dir])
+    if config["save"]:
+        src_dir = "/tmp/data/"
+        dest_dir = config["save_dir"]
+        subprocess.call(["rsync", "-vuar", src_dir, dest_dir])
 
     return calculated_output
     
@@ -391,8 +410,6 @@ if __name__ == "__main__":
     logger.debug("Updating detector time")
     det.update(Time(config["detector_time"]))
     
-    # note if no runtable provided, runtable is queried from the database
-    rnog_reader = readRNOGData(log_level=log_level)
 
     broken_runs = read_broken_runs(config['broken_runs_dir'] + f"/station{args.station}.pickle")
     broken_runs_list = [int(run) for run in broken_runs.keys()]
@@ -422,18 +439,22 @@ if __name__ == "__main__":
 
     mattak_kw = dict(backend="pyroot", read_daq_status=False, read_run_info=False)
 
-
-    rnog_reader.begin(root_dirs,
-                      selectors=selectors,
-                      read_calibrated_data=calibration == "full",
-                      apply_baseline_correction="approximate",
-                      convert_to_voltage=calibration == "linear",
-                      select_runs=True,
-                      run_types=["physics"],
-                      run_time_range=run_time_range,
-                      max_trigger_rate=2 * units.Hz,
-                      mattak_kwargs=mattak_kw)
-
+    if np.any([root_dir.endswith(".root") for root_dir in root_dirs]):
+        # note if no runtable provided, runtable is queried from the database
+        rnog_reader = readRNOGData(log_level=log_level)
+        rnog_reader.begin(root_dirs,
+                          selectors=selectors,
+                          read_calibrated_data=calibration == "full",
+                          apply_baseline_correction="approximate",
+                          convert_to_voltage=calibration == "linear",
+                          select_runs=True,
+                          run_types=["physics"],
+                          run_time_range=run_time_range,
+                          max_trigger_rate=2 * units.Hz,
+                          mattak_kwargs=mattak_kw)
+    elif np.any([root_dir.endswith(".nur") for root_dir in root_dirs]):
+        rnog_reader = eventReader()
+        rnog_reader.begin(root_dirs)
 
 
 
@@ -441,13 +462,14 @@ if __name__ == "__main__":
 #                          calculate_variable=calculate_variable)
     output = parse_data(rnog_reader, det, config=config, args=args, logger=logger, calculation_function=populate_spec_amplitude_histogram)
     
-    print(output.shape)
-    print(output[0][400])
-
-    function_kwargs = config["variable_function_kwargs"]["clean"]
-    hist_range= function_kwargs["hist_range"]
-    nr_bins= function_kwargs["nr_bins"]
-    bin_edges = np.linspace(hist_range[0], hist_range[1], nr_bins + 1)
-    plt.stairs(output[0, 400], edges=bin_edges) 
-    plt.savefig("test")
-    print_malloc_snapshot()
+# test
+#    print(output.shape)
+#    print(output[0][400])
+#
+#    function_kwargs = config["variable_function_kwargs"]["clean"]
+#    hist_range= function_kwargs["hist_range"]
+#    nr_bins= function_kwargs["nr_bins"]
+#    bin_edges = np.linspace(hist_range[0], hist_range[1], nr_bins + 1)
+#    plt.stairs(output[0, 400], edges=bin_edges) 
+#    plt.savefig("test")
+#    print_malloc_snapshot()
