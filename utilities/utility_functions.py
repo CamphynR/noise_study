@@ -2,30 +2,46 @@ import json
 from pathlib import Path
 import pickle
 import numpy as np
+import os
 from scipy import constants
 import NuRadioReco.modules.channelBandPassFilter
 from NuRadioReco.utilities import units
 
 # Coding helper functions
 
-def open_pickle(pickle_file):
+def read_pickle(pickle_file):
     with open(pickle_file, "rb") as file:
         content = pickle.load(file)
     return content
+
+def write_pickle(data, pickle_file):
+    with open(pickle_file, "wb") as file:
+        pickle.dump(data, file)
+    return
 
 
 def find_config(data_dir):
     """
     function that yields config file, assuming the config to be stored on the same level as the stationX folder.
     """
-    job_folder = Path(data_dir).parents[1]
+    job_folder = Path(data_dir).parents[2]
     return str(job_folder) + "/config.json"
 
 
-def open_config(config_path):
+def read_config(config_path):
     with open(config_path, "r") as config_json:
         config = json.load(config_json)
     return config
+
+
+def create_nested_dir(directory):
+    try:
+        os.makedirs(directory)
+    except OSError:
+        if os.path.isdir(directory):
+            pass
+        else:
+            raise SystemError("os was unable to construct data folder hierarchy")
 
 # Theoretical functions
 
