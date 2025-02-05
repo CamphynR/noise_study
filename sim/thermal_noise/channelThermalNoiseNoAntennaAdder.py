@@ -14,6 +14,8 @@ import healpy
 import astropy.coordinates
 import astropy.units
 
+import matplotlib.pyplot as plt
+
 logger = logging.getLogger('NuRadioReco.channelThermalNoiseAdder')
 
 

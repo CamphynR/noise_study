@@ -64,7 +64,7 @@ def create_thermal_noise_events(nr_events, station_id, detector,
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--station", default=23)
-    parser.add_argument("--include_det", type=bool, default=True)
+    parser.add_argument("--skip_det", action="store_true")
     parser.add_argument("--config", default="sim/thermal_noise/config_efields.json")
     args = parser.parse_args()
 
@@ -73,7 +73,7 @@ if __name__ == "__main__":
     save_dir = f"{config['save_dir']}/simulations/thermal_noise_traces" 
     date = datetime.datetime.now().strftime("%Y_%m_%d_%H")
     save_dir +=f"/job_{date}_no_ant"
-    if not args.include_det:
+    if args.skip_det:
         save_dir += "_no_det"
     create_nested_dir(save_dir)
     settings_dict = {**config, **vars(args)}
@@ -85,8 +85,8 @@ if __name__ == "__main__":
     print(save_dir)
 
     station_id = args.station
-    nr_batches = 3
-    events_per_batch = 100
+    nr_batches = 1
+    events_per_batch = 2
 
     n_side = 4
     noise_temperature = 300 * units.kelvin
@@ -100,7 +100,7 @@ if __name__ == "__main__":
 
     for batch in range(nr_batches): 
         events = create_thermal_noise_events(events_per_batch, 23, detector, choose_channels = [0, 1, 2, 3, 4, 8],
-                                             include_det_signal_chain=args.include_det,
+                                             include_det_signal_chain=not args.skip_det,
                                              n_side=n_side, noise_temperature=noise_temperature)
 
         filename = f"events_batch{batch}"

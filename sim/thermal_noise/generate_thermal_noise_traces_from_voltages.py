@@ -1,5 +1,6 @@
 import argparse
 import datetime
+import functools
 import itertools
 import json
 import matplotlib.pyplot as plt
@@ -18,7 +19,7 @@ from NuRadioReco.modules.io.eventWriter import eventWriter
 from NuRadioReco.modules.RNO_G.hardwareResponseIncorporator import hardwareResponseIncorporator
 from NuRadioReco.utilities import units
 
-from utilities.temp_to_noise import temp_to_volt
+from temp_to_noise import temp_to_volt
 from utilities.utility_functions import read_config, create_nested_dir
 
 
@@ -31,21 +32,24 @@ def spherical_to_cartesian(r, theta, phi):
 
 
 
-def average_antenna_vel_over_direction(antenna_pattern,
-                                       orientation = [0, 0, np.pi / 2, np.pi / 2]):
-        
-    vel = []
-    for azi, zen in itertools.product(azimuth, zenith):
-        VEL = antenna_pattern.get_antenna_response_vectorized(freqs, zen, azi, *orientation)
-        vel.append([np.abs(VEL["theta"]), np.abs(VEL["phi"])])
-
-    vel = np.array(vel)
-    vel = vel.reshape(len(azimuth), len(zenith), 2, len(freqs))
-
-    # very much possible this needs to be changed!!
-    vel = np.mean(vel, axis=(0,1))
-
-    return vel
+#def average_antenna_vel_over_direction(antenna_pattern,
+#                                       freqs,
+#                                       orientation = [0, 0, np.pi / 2, np.pi / 2]):
+#        
+#    zenith = np.linspace(0, 89/180 * np.pi) 
+#    azimuth = np.linspace(0, 2*np.pi) 
+#    vel = []
+#    for azi, zen in itertools.product(azimuth, zenith):
+#        VEL = antenna_pattern.get_antenna_response_vectorized(freqs, zen, azi, *orientation)
+#        vel.append([np.abs(VEL["theta"]), np.abs(VEL["phi"])])
+#
+#    vel = np.array(vel)
+#    vel = vel.reshape(len(azimuth), len(zenith), 2, len(freqs))
+#
+#    # very much possible this needs to be changed!!
+#    vel = np.mean(vel, axis=(0,1), dtype=np.float32)
+#
+#    return vel
 
 
 
@@ -59,7 +63,9 @@ class thermalNoiseVoltageSimulator():
         pass
 
     def begin(self, temp, bandwidth,
-              antenna_models = { "VPol" : "RNOG_vpol_ice_upsample", "HPol" :"RNOG_hpol_v4_8inch_center_n1.74"}):
+              min_freq=10*units.MHz, max_freq=1600*units.MHz,
+              antenna_models = { "VPol" : "RNOG_vpol_ice_upsample", "HPol" :"RNOG_hpol_v4_8inch_center_n1.74"},
+              caching=True):
 
         """
         temp : int
@@ -80,9 +86,12 @@ class thermalNoiseVoltageSimulator():
         self.frequencies = np.fft.rfftfreq(self.nr_samples, d=1./self.sampling_rate)
 
         self.temp = temp
+        self.min_freq = min_freq
+        self.max_freq = max_freq
+        self.resistance=50*units.ohm
 
         self.bandwidth = bandwidth 
-        self.amplitude = temp_to_volt(self.temp, self.bandwidth)
+        self.amplitude = temp_to_volt(self.temp, min_freq, max_freq, self.frequencies, self.resistance)
 
         self.channel_bandpass_filter = channelBandPassFilter()
 
@@ -93,7 +102,34 @@ class thermalNoiseVoltageSimulator():
         hpol_map = {i : "HPol" for i in [4, 8, 11, 21]}
         self.channel_map.update(hpol_map)
 
+        self.__caching = caching
 
+    @functools.lru_cache(maxsize=1024 * 32)
+    def get_cached_antenna_response(self, antenna_pattern, zen, azi, *ant_orient):
+        return antenna_pattern.get_antenna_response_vectorized(self.frequencies, zen, azi, *ant_orient)
+
+    @functools.lru_cache(maxsize=1024 * 32)
+    def get_cached_antenna_response_averaged(self, antenna_pattern, orientation):       return average_antenna_vel_over_direction(antenna_pattern, self.frequencies, orientation)
+
+
+    def average_antenna_vel_over_direction(self, antenna_pattern,
+                                           freqs,
+                                           orientation = [0, 0, np.pi / 2, np.pi / 2]):
+            
+        zenith = np.linspace(0, 89/180 * np.pi) 
+        azimuth = np.linspace(0, 2*np.pi) 
+        vel = []
+        for azi, zen in itertools.product(azimuth, zenith):
+            VEL = self.get_cached_antenna_response(antenna_pattern, zen, azi, *orientation)
+            vel.append([np.abs(VEL["theta"]), np.abs(VEL["phi"])])
+
+        vel = np.array(vel)
+        vel = vel.reshape(len(azimuth), len(zenith), 2, len(freqs))
+
+        # very much possible this needs to be changed!!
+        vel = np.mean(vel, axis=(0,1), dtype=np.float32)
+
+        return vel
 
     def run(self, event, station, detector):
         """
@@ -104,8 +140,8 @@ class thermalNoiseVoltageSimulator():
  
 
         noise_spectrum = channelgenericnoiseadder.bandlimited_noise(
-                    None,
-                    None,
+                    self.min_freq,
+                    self.max_freq,
                     self.nr_samples, self.sampling_rate, self.amplitude,
                     type="rayleigh", time_domain=False)
 
@@ -114,7 +150,7 @@ class thermalNoiseVoltageSimulator():
             channel_id = channel.get_id()
             antenna_type = self.channel_map[channel_id]
             antenna_pattern = self.antenna_provider.load_antenna_pattern(self.antenna_models[antenna_type])
-            vel = average_antenna_vel_over_direction(antenna_pattern)
+            vel = self.average_antenna_vel_over_direction(antenna_pattern, self.frequencies)
 
             det_resp = self.detector.get_signal_chain_response(station.get_id(), channel_id)
             det_resp = det_resp(np.array(self.frequencies))
@@ -172,6 +208,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--station", default=23)
     parser.add_argument("--config", default="sim/thermal_noise/config_efields.json")
+    parser.add_argument("--skip_det", action="store_true")
     args = parser.parse_args()
 
     config = read_config(args.config) 
@@ -179,6 +216,8 @@ if __name__ == "__main__":
     save_dir = f"{config['save_dir']}/simulations/thermal_noise_traces" 
     date = datetime.datetime.now().strftime("%Y_%m_%d_%H")
     save_dir +=f"/job_{date}_voltages"
+    if args.skip_det:
+        save_dir += "_no_det"
     create_nested_dir(save_dir)
     settings_dict = {**config, **vars(args)}
     config_file = f"{save_dir}/config_voltages.json"
@@ -203,10 +242,10 @@ if __name__ == "__main__":
 
 
     for batch in range(nr_batches): 
-        events = create_thermal_noise_events(events_per_batch, 23, detector,
+        events = create_thermal_noise_events(events_per_batch, args.station, detector,
                                              choose_channels = [0, 1, 2, 3, 4, 8],
-                                             include_det_signal_chain=config["include_det_signal_chain"],
-                                             temp=300*units.kelvin, bandwidth=1500*units.MHz)
+                                             include_det_signal_chain=not args.skip_det,
+                                             temp=noise_temperature, bandwidth=1500*units.MHz)
 
         filename = f"events_batch{batch}"
         savename = save_dir + "/" + filename

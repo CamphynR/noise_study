@@ -57,6 +57,7 @@ def create_thermal_noise_events(nr_events, station_id, detector,
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--station", "-s", type=int, default=23)
+    parser.add_argument("--skip_det", action="store_true")
     parser.add_argument("--config", default="sim/thermal_noise/config_iceadder.json")
     args = parser.parse_args()
     config = read_config(args.config)
@@ -65,6 +66,8 @@ if __name__ == "__main__":
     save_dir = f"{config['save_dir']}/simulations/thermal_noise_traces" 
     date = datetime.datetime.now().strftime("%Y_%m_%d_%H")
     save_dir +=f"/job_{date}_iceadder"
+    if args.skip_det:
+        save_dir += "no_det"
     create_nested_dir(save_dir)
     settings_dict = {**config, **vars(args)}
     config_file = f"{save_dir}/config_efields.json"
@@ -87,7 +90,7 @@ if __name__ == "__main__":
     for batch in range(nr_batches):
         events = create_thermal_noise_events(nr_events, args.station, detector,
                                              choose_channels = [0, 1, 2, 3, 4, 8],
-                                             include_det_signal_chain=config["include_det_signal_chain"],
+                                             include_det_signal_chain=args.skip_det,
                                              ice=ice, model_ice=model_ice,
                                              passband=[10 * units.MHz, 1600 * units.MHz]
                                              )
