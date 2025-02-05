@@ -109,9 +109,10 @@ if __name__ == "__main__":
         fig, ax = plt.subplots()
         ax.stairs(spec_hists[ch, freq_idx - 1], edges = bin_edges)
         ax.plot(bin_centers, ray)
-        ax.text(0.6, 0.6, r"$\sigma=$" + f"{param[0]:.2f}" + r"$\pm$" +  f"{cov:.2f}",
+        ax.text(0.6, 0.6, r"$\sigma=$" + f"{param[0]:.4f}" + r"$\pm$" +  f"{cov:.2f}",
                 transform=ax.transAxes)
-        ax.text(0.6, 0.3, f"nr_runs: {nr_runs}",
+        ax.text(0.9, 0.9, f"nr_runs: {nr_runs}",
+                va = "top", ha = "right",
                 transform=ax.transAxes)
         ax.set_xlabel("Spectrum magnitude / V/GHz", size = "large")
         ax.set_ylabel("N")
