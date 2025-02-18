@@ -1,0 +1,15 @@
+getenv=True
+batch_name=thermal_noise_sim_multi
+
+# with filters
+executable = /user/rcamphyn/envs/mattak_env/bin/python3
+arguments = /user/rcamphyn/noise_study/sim/thermal_noise/generate_thermal_noise_traces_from_efields_masha.py --station $(STATION)
+log = /user/rcamphyn/noise_study/submit/thermal_noise_$(STATION)_multi.log
+output = /user/rcamphyn/noise_study/submit/thermal_noise_$(STATION)_multi.out
+error = /user/rcamphyn/noise_study/submit/thermal_noise_$(STATION)_multi.err
+request_cpus = 3
+request_memory = 4000MB
+request_disk = 5GB
+should_transfer_files = NO
+queue STATION in (23)
+
