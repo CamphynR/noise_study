@@ -4,6 +4,7 @@ import pickle
 import numpy as np
 import os
 from scipy import constants
+import NuRadioMC.utilities.medium as medium
 import NuRadioReco.modules.channelBandPassFilter
 from NuRadioReco.utilities import units
 
@@ -42,6 +43,15 @@ def create_nested_dir(directory):
             pass
         else:
             raise SystemError("os was unable to construct data folder hierarchy")
+
+
+def select_ice_model(config):
+    model = config["propagation"]["ice_model"]
+    if model == "greenland_simple":
+        return medium.greenland_simple()
+    else:
+        raise KeyError(f"{model} not found, update select_ice_model or try a different model")
+
 
 # Theoretical functions
 
