@@ -16,3 +16,4 @@ submit
 trace_mem.txt
 .condor*
 *.pickle
+*.h5
