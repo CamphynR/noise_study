@@ -213,10 +213,10 @@ if __name__ == "__main__":
                             database_connection="RNOG_public",
                             select_stations=args.station,
                             log_level=log_level)
-    
+
     logger.debug("Updating detector time")
     det.update(Time(config["detector_time"]))
-    
+
     # note if no runtable provided, runtable is queried from the database
     rnog_reader = readRNOGData(log_level=log_level)
 
@@ -233,7 +233,7 @@ if __name__ == "__main__":
         skip_runs = config['skip_runs'][str(args.station)]
         root_dirs = glob.glob(f"{data_dir}/station{args.station}/run*[!run363]") # run 363 is broken (100 waveforms with 200 event infos)
         root_dirs = [root_dir for root_dir in root_dirs if not int(os.path.basename(root_dir).split("run")[-1]) in skip_runs]
-
+        print(root_dirs)
     selectors = [lambda event_info : event_info.triggerType == "FORCE"]
 
     if len(config["run_time_range"]) == 0:
