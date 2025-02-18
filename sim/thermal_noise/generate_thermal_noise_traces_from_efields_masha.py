@@ -2,7 +2,10 @@ import argparse
 from astropy.time import Time
 import datetime
 import json
+import multiprocessing
+print(multiprocessing.cpu_count())
 import numpy as np
+import os
 
 from NuRadioReco.detector.detector import Detector
 from NuRadioReco.framework.event import Event
@@ -14,7 +17,7 @@ from NuRadioReco.modules.RNO_G.hardwareResponseIncorporator import hardwareRespo
 from NuRadioReco.utilities import units
 from NuRadioMC.utilities import medium
 
-from utilities.utility_functions import read_config, create_nested_dir
+from utilities.utility_functions import read_config, create_nested_dir, select_ice_model
 
 
 def create_thermal_noise_events(nr_events, station_id, detector,
@@ -71,6 +74,9 @@ if __name__ == "__main__":
     create_nested_dir(save_dir)
     settings_dict = {**config, **vars(args)}
     config_file = f"{save_dir}/config_efields.json"
+    if os.path.exists(config_file):
+        print("overwriting config file")
+        os.remove(config_file)
     with open(config_file, "w") as f:
         json.dump(settings_dict, f)
 
@@ -81,13 +87,13 @@ if __name__ == "__main__":
     det_time = Time("2022-08-01")
     detector.update(det_time)
 
-    ice = medium.greenland_simple()
-    model_ice = "GL2"
+    ice = select_ice_model(config)
+    model_ice = config["propagation"]["attenuation_model"]
 
-    nr_batches = 2
-    nr_events = 100
+    nr_batches = 1
+    nr_events = 1
 
-    for batch in range(nr_batches):
+    def events_process(batch):
         events = create_thermal_noise_events(nr_events, args.station, detector,
                                              choose_channels = [0, 1, 2, 3, 4, 8],
                                              include_det_signal_chain=args.skip_det,
@@ -101,3 +107,23 @@ if __name__ == "__main__":
         for event in events:
             event_writer.run(event)
         del events
+        return
+
+    with multiprocessing.Pool() as p:
+        p.map(events_process, range(nr_batches))
+
+
+#    for batch in range(nr_batches):
+#        events = create_thermal_noise_events(nr_events, args.station, detector,
+#                                             choose_channels = [0, 1, 2, 3, 4, 8],
+#                                             include_det_signal_chain=args.skip_det,
+#                                             ice=ice, model_ice=model_ice,
+#                                             passband=[10 * units.MHz, 1600 * units.MHz]
+#                                             )
+#        
+#        filename = f"events_batch{batch}"
+#        savename = save_dir + "/" + filename
+#        event_writer.begin(filename=savename)
+#        for event in events:
+#            event_writer.run(event)
+#        del events

@@ -1,11 +1,14 @@
 import argparse
 import datetime
 import json
+import logging
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 import pickle
 
 from NuRadioReco.detector import detector
+from NuRadioReco.detector.RNO_G.rnog_detector_mod import ModDetector
 from NuRadioReco.framework.event import Event
 from NuRadioReco.framework.station import Station
 from NuRadioReco.framework.channel import Channel
@@ -99,22 +102,66 @@ if __name__ == "__main__":
     create_nested_dir(save_dir)
     settings_dict = {**config, **vars(args)}
     config_file = f"{save_dir}/config_efields.json"
+    if os.path.exists(config_file):
+        print("overwriting config file")
+        os.remove(config_file)
     with open(config_file, "w") as f:
         json.dump(settings_dict, f)
 
+    logging.getLogger().setLevel(logging.DEBUG)
     
     print(save_dir)
 
     station_id = args.station
+    include_channels = [0, 1, 2, 3, 4, 8]
+
+    channel_mapping = {}
+
     nr_batches = 3
     events_per_batch = 200
 
     n_side = 4
     noise_temperature = 300 * units.kelvin
+
+    def get_antenna_type(ch_id):
+        if ch_id in [0, 1, 2, 3]:
+            return "VPol"
+        elif ch_id in [4, 8]:
+            return "HPol"
+        else:
+            return "LPDA"
+
+    antenna_models = {"HPol" : "RNOG_hpol_v4_8inch_center_n1.74",
+                      "VPol" : "RNOG_vpol_v3_5inch_center_n1.74"}
+
+        
     
-    detector = detector.Detector(source="rnog_mongo", select_stations=station_id)
+#    detector = detector.Detector(source="rnog_mongo", select_stations=station_id)
+#    detector_time = datetime.datetime(2022, 8, 1)
+#    detector.update(detector_time)
+
+    detector = ModDetector(database_connection='RNOG_public', log_level=logging.NOTSET, over_write_handset_values=None,
+                 database_time=None, always_query_entire_description=False, detector_file=None,
+                 select_stations=station_id, create_new=False)
     detector_time = datetime.datetime(2022, 8, 1)
     detector.update(detector_time)
+
+#    for channel_id in include_channels:
+#        antenna_type = get_antenna_type(channel_id)
+#        antenna_model = antenna_models[antenna_type]
+#        detector.modify_channel_description(station_id, channel_id, ["signal_chain","VEL"], antenna_model)
+
+    for channel_id in [0, 1, 2, 3]:
+        antenna_model = "RNOG_vpol_v3_5inch_center_n1.74"
+        detector.modify_channel_description(station_id, channel_id, ["signal_chain","VEL"], antenna_model)
+
+    for channel_id in [4, 8]:
+        antenna_model = "RNOG_hpol_v4_8inch_center_n1.74"
+        detector.modify_channel_description(station_id, channel_id, ["signal_chain","VEL"], antenna_model)
+
+
+    print(detector.get_antenna_model(23, 0))
+    print(detector.get_antenna_model(23, 4))
 
     event_writer = eventWriter()
 
