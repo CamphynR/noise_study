@@ -48,9 +48,9 @@ def produce_rayleigh_params(bin_centers, histograms, rayleigh_function, sigma_gu
 
 def get_rayleigh_curve(path):
     config = get_config(path)
-    station_id = config["station_id"]
+    station_id = config["station"]
     if "channels_to_include" in config.keys():
-        channels_to_include = config_sim["channels_to_include"]
+        channels_to_include = config["channels_to_include"]
     else:
         # PA VPol and HPol
         channels_to_include = [0, 4]
@@ -82,11 +82,14 @@ def get_rayleigh_curve(path):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_paths", nargs="?")
+    parser.add_argument("--data_paths", nargs="+")
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
 
-    names = ["data", "simulation"]
+    names = ["ice simulation (steffen old antenna)", "ice simulation (masha)", "electronic simulation (140 K)", "data"]
+
+    config = get_config(args.data_paths[0])
+    station_id = config["station"]
     
     det = detector.Detector(source="rnog_mongo",
                             always_query_entire_description=False,
@@ -125,21 +128,23 @@ if __name__ == "__main__":
 
     
     if "channels_to_include" in config.keys():
-        channels_to_include = config_sim["channels_to_include"]
+        channels_to_include = config["channels_to_include"]
     else:
         # PA VPol and HPol
         channels_to_include = [0, 4]
+    
+    print(np.array(sigmas_list).shape)
 
-    for ch_i in channels_to_include:
-        fig, axs = plt.subplots(2, 1, sharex=True)
+    for ch_i, _ in enumerate(channels_to_include):
+        fig, ax = plt.subplots(1, 1, sharex=True)
         for i, sigmas in enumerate(sigmas_list):
-            axs[0].errorbar(frequencies[i][ch_i], sigmas[ch_i], yerr = covs[i][ch_i], label = "data")
-            axs[0].legend(loc = "best")
-            axs[0].set_title(f"Station{station_id}, channel {channels_to_include[i]}")
-            axs[0].set_xlabel("freq / GHz")
-            axs[0].set_ylabel(r"$\sigma$")
-            axs[0].set_xlim(x_lower_lim, x_upper_lim)
-            axs[0].set_ylim(y_lower_lim, y_upper_lim)
+            ax.errorbar(frequencies[i], sigmas[ch_i], yerr = covs_list[i][ch_i], label = names[i])
+            ax.legend(loc = "best")
+            ax.set_title(f"Station{station_id}, channel {channels_to_include[ch_i]})")
+            ax.set_xlabel("freq / GHz")
+            ax.set_ylabel(r"$\sigma$ / V/GHz")
+            ax.set_xlim(x_lower_lim, x_upper_lim)
+            ax.set_ylim(y_lower_lim, y_upper_lim)
            
         fig.savefig(pdf, format="pdf")
         plt.close(fig)
