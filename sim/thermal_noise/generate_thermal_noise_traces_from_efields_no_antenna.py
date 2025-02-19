@@ -8,6 +8,7 @@ import datetime
 import json
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 import pickle
 
 from NuRadioReco.detector import detector
@@ -78,6 +79,9 @@ if __name__ == "__main__":
     create_nested_dir(save_dir)
     settings_dict = {**config, **vars(args)}
     config_file = f"{save_dir}/config_efields.json"
+    if os.path.exists(config_file):
+        print("overwriting config file")
+        os.remove(config_file)
     with open(config_file, "w") as f:
         json.dump(settings_dict, f)
 
@@ -85,8 +89,9 @@ if __name__ == "__main__":
     print(save_dir)
 
     station_id = args.station
+
     nr_batches = 1
-    events_per_batch = 2
+    events_per_batch = 1
 
     n_side = 4
     noise_temperature = 300 * units.kelvin
@@ -109,42 +114,3 @@ if __name__ == "__main__":
         for event in events:
             event_writer.run(event)
         del events
-
-#    test_file = "./testing_sims.pickle"
-#    events = read_pickle(test_file)
-
-#    freq = 400 * units.MHz
-#    channel_id = 0
-#    station = events[0].get_station(station_id)
-#    channel = station.get_channel(channel_id)
-#    frequencies = channel.get_frequencies()
-#    spectrum = channel.get_frequency_spectrum()
-#    trace = channel.get_trace()
-#
-#    fig, ax = plt.subplots()
-#    ax.plot(trace)
-#    ax.set_xlabel("samples")
-#    ax.set_ylabel("V")
-#    fig.savefig("test_trace")
-#
-#
-#    fig, ax = plt.subplots()
-#    ax.plot(frequencies, np.abs(spectrum))
-#    ax.set_xlabel("freq / GHz")
-#    ax.set_ylabel("spectral ampltiude / V/GHz")
-#    fig.savefig("test_freq")
-#
-#    hist_values = []
-#    for event in events:
-#        station = event.get_station()
-#        channel = station.get_channel(channel_id)
-#        frequencies = channel.get_frequencies()
-#        spectrum = channel.get_frequency_spectrum()
-#        hist_values.append(np.abs(spectrum[np.where(freq==frequencies)]))
-#
-#
-#    hist_values = np.squeeze(hist_values)
-#    fig, ax = plt.subplots()
-#    ax.hist(hist_values, bins=20, rwidth=0.9)
-#    ax.set_xlabel("spectral ampltiude / V/GHz")
-#    fig.savefig("test_distr")

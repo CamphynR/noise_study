@@ -1,0 +1,214 @@
+import functools
+import json
+import logging
+import numpy as np
+import os
+import scipy.constants
+import scipy.interpolate
+from scipy.interpolate import interp1d
+from urllib.request import urlretrieve
+import warnings
+
+from NuRadioReco.utilities import units, ice, geometryUtilities
+from NuRadioReco.modules.base.module import register_run
+import NuRadioReco.framework.channel
+import NuRadioReco.framework.sim_station
+import NuRadioReco.detector.antennapattern
+
+import astropy.coordinates
+
+from NuRadioReco.utilities import units
+
+logger = logging.getLogger('NuRadioReco.channelThermalNoiseAdder')
+
+
+class channelThermalNoiseAdder:
+    """
+    module to generate thermal noise, both from electronics and ice
+    this class is a stripped version of channelGalacticNoiseAdder, modified to
+    generate thermal noise instead of galactic radio noise
+    """
+
+    def __init__(self):
+        self.__n_side = None
+        self.__antenna_pattern_provider = NuRadioReco.detector.antennapattern.AntennaPatternProvider()
+
+
+    @functools.lru_cache(maxsize=1024 * 32)
+    def get_cached_antenna_response(self, antenna_pattern, zen, azi, *ant_orient):
+        return antenna_pattern.get_antenna_response_vectorized(self.freqs, zen, azi, *ant_orient)
+
+
+    def get_temperature_at_depth(self, depth):
+        grip_dir = f"{os.path.dirname(os.path.abspath(__file__))}/../../NuRadioMC/data"
+        grip_file = "griptemp.txt"
+        grip_path = grip_dir + "/" + grip_file
+
+        if not os.path.exists(grip_path):
+            grip_url = "https://doi.pangaea.de/10.1594/PANGAEA.89007?format=textfile"
+            urlretrieve(grip_url, grip_path)
+
+        grip_temp = np.loadtxt(grip_path, skiprows=39)
+        depth_values = -grip_temp[:,0]
+        temperature_values = grip_temp[:,1]
+        profile = interp1d(depth_values,
+                           temperature_values,
+                           bounds_error=False,
+                           fill_value=(temperature_values[-1],temperature_values[0]))
+        return profile(depth)
+
+    def solid_angle(self, theta, d_theta, d_phi):
+        return np.abs(np.sin(theta) * np.sin(d_theta / 2) * 2 * d_phi)
+
+    def get_temperature_from_json(self, temperature_file):
+        with open(temperature_file, "r") as file_open:
+            temperature_file_dict = json.load(file_open)
+        z_antenna = temperature_file_dict["z_antenna"]
+        theta = temperature_file_dict["theta"]
+        eff_temperature = temperature_file_dict["eff_temperature"]
+        return z_antenna, theta, eff_temperature
+
+
+
+    def begin(self, temperature_file = None):
+        """
+        Set up important parameters for the module
+
+        Parameters
+        ----------
+        n_side: int, default: 4
+            The n_side parameter of the healpix map. Has to be power of 2
+            The skymap is downsized to the resolution specified by the n_side
+            parameter and for every pixel above the horizon the antenna's vector effective length
+            from that direction is folded into the generated thermal noise.
+            The number of pixels used is 12 * n_side ** 2, so a larger value for n_side will result better accuracy
+            but also greatly increase computing time.
+        noise_temperature: float, default: 300
+            The noise temperature of the ambient ice in Kelvin.
+        """
+        if temperature_file is None:
+            raise ValueError("Temperature file is required, automatic generation to be implemented")
+        else:
+            self.temperature_file = temperature_file
+
+        self.z_antenna, self.thetas, self.eff_temperature = self.get_temperature_from_json(self.temperature_file)
+        self.nr_theta_bins = len(self.thetas)
+        return
+
+
+    @register_run()
+    def run(
+            self,
+            event,
+            station,
+            detector,
+            passband=None
+    ):
+
+        """
+        Adds noise resulting from thermal emission to the channel traces
+
+        Parameters
+        ----------
+        event: Event object
+            The event containing the station to whose channels noise shall be added
+        station: Station object
+            The station whose channels noise shall be added to
+        detector: Detector object
+            The detector description
+        passband: list of float, optional
+            Lower and upper bound of the frequency range in which noise shall be
+            added. The default (no passband specified) is [10, 1000] MHz
+        """
+
+        # check that for all channels channel.get_frequencies() is identical
+        last_freqs = None
+        print(station.get_channel_ids())
+        for channel in station.iter_channels():
+            print(channel)
+            if last_freqs is not None and (
+                    not np.allclose(last_freqs, channel.get_frequencies(), rtol=0, atol=0.1 * units.MHz)):
+                logger.error("The frequencies of each channel must be the same, but they are not!")
+                return
+
+            last_freqs = channel.get_frequencies()
+
+        freqs = last_freqs
+        self.freqs = freqs
+        d_f = freqs[2] - freqs[1]
+
+        if passband is None:
+            passband = [10 * units.MHz, 1000 * units.MHz]
+
+        passband_filter = (freqs > passband[0]) & (freqs < passband[1])
+
+        site_latitude, site_longitude = detector.get_site_coordinates(station.get_id())
+        station_time = station.get_station_time()
+
+
+        n_ice = ice.get_refractive_index(-0.01, detector.get_site(station.get_id()))
+        n_air = ice.get_refractive_index(depth=1, site=detector.get_site(station.get_id()))
+        c_vac = scipy.constants.c * units.m / units.s
+
+        channel_spectra = {}
+        for channel in station.iter_channels():
+            channel_spectra[channel.get_id()] = channel.get_frequency_spectrum()
+
+        d_thetas = np.diff(self.thetas)
+
+        d_phi = 2 * np.pi
+        for theta_i, (theta, d_theta) in enumerate(zip(self.thetas, d_thetas)):
+            solid_angle = self.solid_angle(theta, d_theta, d_phi)
+
+            # calculate spectral radiance of radio signal using rayleigh-jeans law
+            spectral_radiance = (2. * (scipy.constants.Boltzmann * units.joule / units.kelvin)
+                * freqs[passband_filter] ** 2 * self.eff_temperature[theta_i] * solid_angle / c_vac ** 2)
+            spectral_radiance[np.isnan(spectral_radiance)] = 0
+
+            # calculate radiance per energy bin
+            spectral_radiance_per_bin = spectral_radiance * d_f
+
+            # calculate electric field per frequency bin from the radiance per bin
+            efield_amplitude = np.sqrt(
+                spectral_radiance_per_bin / (c_vac * scipy.constants.epsilon_0 * (
+                        units.coulomb / units.V / units.m))) / d_f
+
+            # assign random phases to electric field
+            noise_spectrum = np.zeros((3, freqs.shape[0]), dtype=complex)
+            phases = np.random.uniform(0, 2. * np.pi, len(spectral_radiance))
+
+            noise_spectrum[1][passband_filter] = np.exp(1j * phases) * efield_amplitude
+            noise_spectrum[2][passband_filter] = np.exp(1j * phases) * efield_amplitude
+
+            channel_noise_spec = np.zeros_like(noise_spectrum)
+
+            for channel in station.iter_channels():
+                channel_pos = detector.get_relative_position(station.get_id(), channel.get_id())
+
+                antenna_pattern = self.__antenna_pattern_provider.load_antenna_pattern(
+                    detector.get_antenna_model(station.get_id(), channel.get_id()))
+                antenna_orientation = detector.get_antenna_orientation(station.get_id(), channel.get_id())
+
+                # add random polarizations and phase to electric field
+                polarizations = np.random.uniform(0, 2. * np.pi, len(spectral_radiance))
+
+                channel_noise_spec[1][passband_filter] = noise_spectrum[1][passband_filter] * np.cos(polarizations)
+                channel_noise_spec[2][passband_filter] = noise_spectrum[2][passband_filter] * np.sin(polarizations)
+
+                # fold electric field with antenna response
+#                antenna_response = antenna_pattern.get_antenna_response_vectorized(freqs, zenith, azimuth,
+#                                                                                   *antenna_orientation)
+
+                antenna_response = self.get_cached_antenna_response(antenna_pattern, theta, 0,
+                                                                    *antenna_orientation)
+                channel_noise_spectrum = (
+                    antenna_response['theta'] * channel_noise_spec[1]
+                    + antenna_response['phi'] * channel_noise_spec[2]
+                )
+
+                # add noise spectrum from pixel in the sky to channel spectrum
+                channel_spectra[channel.get_id()] += channel_noise_spectrum
+
+        # store the updated channel spectra
+        for channel in station.iter_channels():
+            channel.set_frequency_spectrum(channel_spectra[channel.get_id()], "same")
