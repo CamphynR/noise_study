@@ -112,7 +112,7 @@ def create_nested_dir(directory):
 
 
 
-def construct_folder_hierarchy(config, args):
+def construct_folder_hierarchy(config, args, folder_appendix=None):
     if not config["save"]:
         return
 
@@ -127,6 +127,8 @@ def construct_folder_hierarchy(config, args):
     # useful when running one script for multiple stations
     date = datetime.datetime.now().strftime("%Y_%m_%d")
     directory = f"{save_dir}/{function_name}/job_{date}"
+    if folder_appendix is not None:
+        directory += f"_{folder_appendix}"
     if args.test:
         directory += "_test"
     if args.filename_appendix:
@@ -152,6 +154,51 @@ def read_broken_runs(path):
     return broken_runs
 
 
+def calculate_average_fft(reader, detector, config, args, logger, directory, cleaning_modules):
+    station_id = args.station
+    station_info = detector.get_station(station_id)
+    nr_channels = len(station_info["channels"])
+    nr_samples = station_info["number_of_samples"]
+    sampling_rate = station_info["sampling_rate"]
+    frequencies = np.fft.rfftfreq(nr_samples, d=1./sampling_rate)
+
+    clean_data = not args.skip_clean
+    clean = "raw" if args.skip_clean else "clean"
+
+    average_frequency_spectrum = np.zeros((nr_channels, len(frequencies)))
+    nr_events = 0
+    for event in reader.run():
+        nr_events += 1
+        station = event.get_station(args.station)
+        
+        if clean_data:
+            for cleaning_key in cleaning_modules.keys():
+                cleaning_modules[cleaning_key].run(event, station, detector,
+                                                   **config["cleaning"][cleaning_key]["run_kwargs"])
+        
+        for channel in station.iter_channels():
+            channel_id = channel.get_id()
+            ch_frequencies = channel.get_frequencies()
+            assert np.all(frequencies == ch_frequencies)
+
+            spectrum = channel.get_frequency_spectrum()
+            spectrum = np.abs(spectrum)
+            average_frequency_spectrum[channel_id] += spectrum
+
+    average_frequency_spectrum /= nr_events
+    
+    header = {}
+    result_dict = {"header" : header,
+                   "time" : station.get_station_time(),
+                   "freq" : frequencies,
+                   "frequency_spectrum" : average_frequency_spectrum}
+
+    if config["save"]:
+        filename = f"{directory}/station{station_id}/{clean}/average_ft"
+        filename += ".pickle"
+        print(f"Saving as {filename}")
+        with open(filename, "wb") as f:
+            pickle.dump(result_dict, f)
 
 def populate_spec_amplitude_histogram(reader, detector, config, args, logger, directory, cleaning_modules, hist_range, nr_bins):
     # this assumes these parameters stay constant over the chosen runtime!
@@ -229,7 +276,8 @@ def populate_spec_amplitude_histogram(reader, detector, config, args, logger, di
 
 
 def parse_data(reader, detector, config, args, logger,
-               calculation_function):
+               calculation_function,
+               folder_appendix=None):
     """
     """
     # Options to clean, to add a cleaning module add it to this dictionary and specify it's options in the config file
@@ -248,7 +296,7 @@ def parse_data(reader, detector, config, args, logger,
     
         
     # construct data folder structure, the function that does the calculations should save the output here
-    directory = construct_folder_hierarchy(config, args)
+    directory = construct_folder_hierarchy(config, args, folder_appendix)
 
     # actual calculations take place here
     # define variable options in kwargs in config file
@@ -314,6 +362,7 @@ if __name__ == "__main__":
     functions = dict(rms = calculate_rms,
                      trace = calculate_trace,
                      spec = calculate_spec,
+                     average_ft = calculate_average_fft,
                      trace_hist = calculate_trace_hist,
                      spec_hist = calculate_spec_hist)
     calculate_variable = functions[config["variable"]]
@@ -345,15 +394,23 @@ if __name__ == "__main__":
         run_files = glob.glob(f"{data_dir}/station{args.station}/run**/*", recursive=True)
         if np.any([run_file.endswith(".root") for run_file in run_files]):
             root_dirs = [root_dir for root_dir in root_dirs if not int(os.path.basename(root_dir).split("run")[-1]) in broken_runs_list]
-            include_channels = np.arange(24)
-            config["include_channels"] = include_channels
+            channels_to_include = np.arange(24)
+            config["channels_to_include"] = channels_to_include
         elif np.any([run_file.endswith(".nur") for run_file in run_files]):
             config["simulation"] = True
             sim_config_path = glob.glob(f"{data_dir}/config*")[0]
             with open(sim_config_path, "r") as sim_config_file:
                 sim_config = json.load(sim_config_file)
             config.update(sim_config)
-            root_dirs = [glob.glob(f"{root_dir}/*")[0] for root_dir in root_dirs]
+            
+            noise_sources = config["noise_sources"]
+            root_dirs_list = []
+            for noise_source in noise_sources:
+                root_dirs_tmp = [glob.glob(f"{root_dir}/events_{noise_source}_batch*")[0] for root_dir in root_dirs]
+                root_dirs_list.append(root_dirs_tmp)
+            if config["include_sum"]:
+                root_dirs_tmp = [glob.glob(f"{root_dir}/events_batch*")[0] for root_dir in root_dirs]
+                root_dirs_list.append(root_dirs_tmp)
         else:
             raise TypeError("Data extension not recognized")
 
@@ -369,12 +426,12 @@ if __name__ == "__main__":
     else:
         run_time_range = config["run_time_range"]
 
-    calibration = config["calibration"][str(args.station)]
 
-    mattak_kw = dict(backend="pyroot", read_daq_status=False, read_run_info=False)
 
 
     if np.any([run_file.endswith(".root") for run_file in run_files]):
+        calibration = config["calibration"][str(args.station)]
+        mattak_kw = dict(backend="pyroot", read_daq_status=False, read_run_info=False)
         # note if no runtable provided, runtable is queried from the database
         rnog_reader = readRNOGData(log_level=log_level)
         rnog_reader.begin(root_dirs,
@@ -387,13 +444,21 @@ if __name__ == "__main__":
                           run_time_range=run_time_range,
                           max_trigger_rate=2 * units.Hz,
                           mattak_kwargs=mattak_kw)
+        rnog_reader = [rnog_reader]
+        folder_appendix = [None]
     elif np.any([run_file.endswith(".nur") for run_file in run_files]):
-        rnog_reader = eventReader()
-        rnog_reader.begin(root_dirs)
+        rnog_reader = []
+        for root_dirs in root_dirs_list:
+            reader = eventReader()
+            reader.begin(root_dirs)
+            rnog_reader.append(reader)
+        folder_appendix = noise_sources + ["sum"]
 
 
+    for i, reader in enumerate(rnog_reader):
+        output = parse_data(reader, det, config=config, args=args, logger=logger, calculation_function=calculate_average_fft, folder_appendix=folder_appendix[i])
 
-    output = parse_data(rnog_reader, det, config=config, args=args, logger=logger, calculation_function=populate_spec_amplitude_histogram)
+#    output = parse_data(rnog_reader, det, config=config, args=args, logger=logger, calculation_function=populate_spec_amplitude_histogram)
     
 # test
 #    print(output.shape)
