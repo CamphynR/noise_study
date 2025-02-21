@@ -64,13 +64,13 @@ class channelThermalNoiseAdder:
         with open(temperature_file, "r") as file_open:
             temperature_file_dict = json.load(file_open)
         z_antenna = temperature_file_dict["z_antenna"]
-        theta = temperature_file_dict["theta"]
+        theta = temperature_file_dict["theta"] * units.rad
         eff_temperature = temperature_file_dict["eff_temperature"]
         return z_antenna, theta, eff_temperature
 
 
 
-    def begin(self, temperature_file = None):
+    def begin(self):
         """
         Set up important parameters for the module
 
@@ -86,13 +86,19 @@ class channelThermalNoiseAdder:
         noise_temperature: float, default: 300
             The noise temperature of the ambient ice in Kelvin.
         """
-        if temperature_file is None:
-            raise ValueError("Temperature file is required, automatic generation to be implemented")
-        else:
-            self.temperature_file = temperature_file
+        temperature_folder = "/home/ruben/Documents/projects/RNO-G_noise_study/sim/library"
+        self.temperature_files = [f"{temperature_folder}/eff_temperature_-100_ntheta100.json",
+                                  f"{temperature_folder}/eff_temperature_-40_ntheta100.json"]
 
-        self.z_antenna, self.thetas, self.eff_temperature = self.get_temperature_from_json(self.temperature_file)
+        self.eff_temperature = {}
+        for temperature_file in self.temperature_files:
+            print(temperature_file)
+            z_antenna, self.thetas, eff_temperature = self.get_temperature_from_json(temperature_file)
+            self.eff_temperature[z_antenna] = eff_temperature
+
         self.nr_theta_bins = len(self.thetas)
+        self.channel_depths = {0 : -100, 4 : -100,
+                               7 : -40}
         return
 
 
@@ -160,30 +166,30 @@ class channelThermalNoiseAdder:
         for theta_i, (theta, d_theta) in enumerate(zip(self.thetas, d_thetas)):
             solid_angle = self.solid_angle(theta, d_theta, d_phi)
 
-            # calculate spectral radiance of radio signal using rayleigh-jeans law
-            spectral_radiance = (2. * (scipy.constants.Boltzmann * units.joule / units.kelvin)
-                * freqs[passband_filter] ** 2 * self.eff_temperature[theta_i] * solid_angle / c_vac ** 2)
-            spectral_radiance[np.isnan(spectral_radiance)] = 0
-
-            # calculate radiance per energy bin
-            spectral_radiance_per_bin = spectral_radiance * d_f
-
-            # calculate electric field per frequency bin from the radiance per bin
-            efield_amplitude = np.sqrt(
-                spectral_radiance_per_bin / (c_vac * scipy.constants.epsilon_0 * (
-                        units.coulomb / units.V / units.m))) / d_f
-
-            # assign random phases to electric field
             noise_spectrum = np.zeros((3, freqs.shape[0]), dtype=complex)
-            phases = np.random.uniform(0, 2. * np.pi, len(spectral_radiance))
-
-            noise_spectrum[1][passband_filter] = np.exp(1j * phases) * efield_amplitude
-            noise_spectrum[2][passband_filter] = np.exp(1j * phases) * efield_amplitude
-
             channel_noise_spec = np.zeros_like(noise_spectrum)
-
             for channel in station.iter_channels():
-                channel_pos = detector.get_relative_position(station.get_id(), channel.get_id())
+                channel_id = channel.get_id()
+                depth = self.channel_depths[channel_id]
+                eff_temperature = self.eff_temperature[depth]
+                # calculate spectral radiance of radio signal using rayleigh-jeans law
+                spectral_radiance = (2. * (scipy.constants.Boltzmann * units.joule / units.kelvin)
+                    * freqs[passband_filter] ** 2 * eff_temperature[theta_i] * solid_angle / c_vac ** 2)
+                spectral_radiance[np.isnan(spectral_radiance)] = 0
+
+                # calculate radiance per energy bin
+                spectral_radiance_per_bin = spectral_radiance * d_f
+
+                # calculate electric field per frequency bin from the radiance per bin
+                efield_amplitude = np.sqrt(
+                    spectral_radiance_per_bin / (c_vac * scipy.constants.epsilon_0 * (
+                            units.coulomb / units.V / units.m))) / d_f
+
+                # assign random phases to electric field
+                phases = np.random.uniform(0, 2. * np.pi, len(spectral_radiance))
+
+                noise_spectrum[1][passband_filter] = np.exp(1j * phases) * efield_amplitude
+                noise_spectrum[2][passband_filter] = np.exp(1j * phases) * efield_amplitude
 
                 antenna_pattern = self.__antenna_pattern_provider.load_antenna_pattern(
                     detector.get_antenna_model(station.get_id(), channel.get_id()))

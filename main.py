@@ -20,6 +20,8 @@ import subprocess
 import tracemalloc
 from typing import Callable
 
+from NuRadioReco.modules.channelSinewaveSubtraction import channelSinewaveSubtraction
+
 import matplotlib.pyplot as plt
 import numpy as np
 from numba import jit
@@ -27,18 +29,31 @@ from astropy.time import Time
 import NuRadioReco
 import NuRadioReco.modules
 import NuRadioReco.modules.RNO_G
+from NuRadioReco.modules.RNO_G.dataProviderRNOG import dataProviderRNOG
 import NuRadioReco.modules.RNO_G.hardwareResponseIncorporator
 from NuRadioReco.utilities import units
 from NuRadioReco.detector import detector
 from NuRadioReco.modules import channelBandPassFilter
 from NuRadioReco.modules.io.eventReader import eventReader
-from NuRadioReco.modules.io.RNO_G.readRNOGDataMattak import readRNOGData
+#from NuRadioReco.modules.io.RNO_G.readRNOGDataMattak import readRNOGData
 from NuRadioReco.framework.base_trace import BaseTrace
 from NuRadioReco.modules.RNO_G.hardwareResponseIncorporator import hardwareResponseIncorporator
 
 import modules.cwFilter
 
 logging.basicConfig(level = logging.WARNING)
+
+
+class NpEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super(NpEncoder, self).default(obj)
+
 
 def get_output_shape(function : Callable[[BaseTrace], np.ndarray]):
     """
@@ -123,6 +138,8 @@ def construct_folder_hierarchy(config, args, folder_appendix=None):
     if "simulation" in config.keys():
         if config["simulation"] == True:
             save_dir += "/simulations"
+    else:
+        save_dir += "/data"
     # defining a savename overwrites the data structure and simply saves everything in a file,
     # useful when running one script for multiple stations
     date = datetime.datetime.now().strftime("%Y_%m_%d")
@@ -184,6 +201,22 @@ def calculate_average_fft(reader, detector, config, args, logger, directory, cle
             spectrum = channel.get_frequency_spectrum()
             spectrum = np.abs(spectrum)
             average_frequency_spectrum[channel_id] += spectrum
+
+            if args.test:
+                if nr_events == 0:
+                    if channel_id == 0:
+                        plt.plot(frequencies, spectrum)
+                        plt.xlabel("freq / GHz")
+                        plt.ylabel("spec a / V/GHz")
+                        plt.savefig("test_ft")
+                        plt.close()
+                        trace = channel.get_trace()
+                        plt.plot(trace)
+                        plt.xlabel("samples")
+                        plt.ylabel("amplitude / V")
+                        plt.savefig("test_trace")
+                        plt.close()
+
 
     average_frequency_spectrum /= nr_events
     
@@ -283,7 +316,8 @@ def parse_data(reader, detector, config, args, logger,
     # Options to clean, to add a cleaning module add it to this dictionary and specify it's options in the config file
     cleaning_options = {"channelBandpassFilter" : NuRadioReco.modules.channelBandPassFilter.channelBandPassFilter,
                         "hardwareResponseIncorporator" : NuRadioReco.modules.RNO_G.hardwareResponseIncorporator.hardwareResponseIncorporator,
-                        "cwFilter" : modules.cwFilter.cwFilter}
+                        "cwFilter" : modules.cwFilter.cwFilter,
+                        "channelSinewaveSubtraction" : NuRadioReco.modules.channelSinewaveSubtraction.channelSinewaveSubtraction}
 
     clean_data = not args.skip_clean
     clean = "raw" if args.skip_clean else "clean"
@@ -311,8 +345,9 @@ def parse_data(reader, detector, config, args, logger,
     print(settings_dict.keys())
     if os.path.isfile(config_name):
         os.remove(config_name)
+    print(settings_dict)
     with open(config_name, "w") as f:
-        json.dump(settings_dict, f)
+        json.dump(settings_dict, f, cls=NpEncoder)
 
     if config["save"]:
         src_dir = "/tmp/data/"
@@ -349,6 +384,8 @@ if __name__ == "__main__":
     
     parser.add_argument("--skip_clean", action = "store_true")
     parser.add_argument("--test", action = "store_true", help = "enables test mode, which only uses one run of data ")
+    parser.add_argument("--nr_batches", default=None, help="only for data, sims are fast enough")
+    parser.add_argument("--batch_i", default=None, help="Only for data, sims are fast enough")
     args = parser.parse_args()
 
     with open(args.config, "r") as config_json:
@@ -364,7 +401,7 @@ if __name__ == "__main__":
                      spec = calculate_spec,
                      average_ft = calculate_average_fft,
                      trace_hist = calculate_trace_hist,
-                     spec_hist = calculate_spec_hist)
+                     spec_hist = populate_spec_amplitude_histogram)
     calculate_variable = functions[config["variable"]]
 
     logger.debug("Initialising detector")
@@ -394,7 +431,10 @@ if __name__ == "__main__":
         run_files = glob.glob(f"{data_dir}/station{args.station}/run**/*", recursive=True)
         if np.any([run_file.endswith(".root") for run_file in run_files]):
             root_dirs = [root_dir for root_dir in root_dirs if not int(os.path.basename(root_dir).split("run")[-1]) in broken_runs_list]
-            channels_to_include = np.arange(24)
+            if args.nr_batches is not None:
+                root_dirs = np.split(root_dirs, args.nr_batches)
+                root_dirs = root_dirs[args.batch_i]
+            channels_to_include = list(np.arange(24))
             config["channels_to_include"] = channels_to_include
         elif np.any([run_file.endswith(".nur") for run_file in run_files]):
             config["simulation"] = True
@@ -417,7 +457,7 @@ if __name__ == "__main__":
 
 
     if args.test:
-        root_dirs = root_dirs[:10]
+        root_dirs = root_dirs[:3]
 
     selectors = [lambda event_info : event_info.triggerType == "FORCE"]
 
@@ -433,8 +473,10 @@ if __name__ == "__main__":
         calibration = config["calibration"][str(args.station)]
         mattak_kw = dict(backend="pyroot", read_daq_status=False, read_run_info=False)
         # note if no runtable provided, runtable is queried from the database
-        rnog_reader = readRNOGData(log_level=log_level)
+        rnog_reader = dataProviderRNOG()
+        print("beginning reader")
         rnog_reader.begin(root_dirs,
+                          reader_kwargs = dict(
                           selectors=selectors,
                           read_calibrated_data=calibration == "full",
                           apply_baseline_correction="approximate",
@@ -443,7 +485,8 @@ if __name__ == "__main__":
                           run_types=["physics"],
                           run_time_range=run_time_range,
                           max_trigger_rate=2 * units.Hz,
-                          mattak_kwargs=mattak_kw)
+                          mattak_kwargs=mattak_kw),
+                          det=det)
         rnog_reader = [rnog_reader]
         folder_appendix = [None]
     elif np.any([run_file.endswith(".nur") for run_file in run_files]):
@@ -455,8 +498,12 @@ if __name__ == "__main__":
         folder_appendix = noise_sources + ["sum"]
 
 
+    function = functions[config["variable"]]
+    t0 = time.time()
     for i, reader in enumerate(rnog_reader):
-        output = parse_data(reader, det, config=config, args=args, logger=logger, calculation_function=calculate_average_fft, folder_appendix=folder_appendix[i])
+        output = parse_data(reader, det, config=config, args=args, logger=logger, calculation_function=function, folder_appendix=folder_appendix[i])
+    dt = time.time() - t0
+    print(f"code took {dt} for {len(reader.reader.get_events_information())} events")
 
 #    output = parse_data(rnog_reader, det, config=config, args=args, logger=logger, calculation_function=populate_spec_amplitude_histogram)
     

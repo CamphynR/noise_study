@@ -13,6 +13,7 @@ from NuRadioReco.framework.event import Event
 from NuRadioReco.framework.station import Station
 from NuRadioReco.framework.channel import Channel
 from NuRadioReco.modules.channelGenericNoiseAdder import channelGenericNoiseAdder
+from NuRadioReco.modules.channelGalacticNoiseAdder import channelGalacticNoiseAdder
 from NuRadioReco.modules.io.eventWriter import eventWriter
 from NuRadioReco.modules.RNO_G.hardwareResponseIncorporator import hardwareResponseIncorporator
 from NuRadioReco.utilities import units
@@ -48,10 +49,11 @@ def get_traces_from_event(event):
 def create_thermal_noise_events(nr_events, station_id, detector,
                                 choose_channels=None,
                                 include_det_signal_chain=True,
-                                noise_sources=["ice", "electronic"],
+                                noise_sources=["ice", "electronic", "galactic"],
                                 include_sum = True,
-                                passband = None,
-                                temperature_file=None):
+                                electronic_temperature=80*units.kelvin,
+                                passband = None):
+    # electronic noise temperature, refer to eric's POS for this (PoS(ICRC2023)1171)
 
     # detector and trace parameters
     station_info = detector.get_station(station_id)
@@ -63,20 +65,22 @@ def create_thermal_noise_events(nr_events, station_id, detector,
     frequencies = np.fft.rfftfreq(nr_samples, d=1./sampling_rate)
 
 
-    # electronic noise temperature
-    temperature = 130 * units.kelvin
     # arbitrary choice but should be wide enough to incorporate detectors frequency fov
     min_freq = 10 * units.MHz
     max_freq = 1600 * units.MHz
     resistance = 50 * units.ohm
-    amplitude = temp_to_volt(temperature, min_freq, max_freq, frequencies, resistance,
+    amplitude = temp_to_volt(electronic_temperature, min_freq, max_freq, frequencies, resistance,
                              filter_type="rectangular")
 
     thermal_noise_adder = channelThermalNoiseAdder()
-    thermal_noise_adder.begin(temperature_file)
+    thermal_noise_adder.begin()
 
     generic_noise_adder = channelGenericNoiseAdder()
     generic_noise_adder.begin()
+
+    galactic_noise_adder = channelGalacticNoiseAdder()
+    galactic_noise_adder.begin(freq_range=[min_freq, max_freq],
+                               caching=True)
 
     hardware_response = hardwareResponseIncorporator()
     hardware_response.begin()
@@ -101,7 +105,7 @@ def create_thermal_noise_events(nr_events, station_id, detector,
             elif noise_source == "electronic":
                 generic_noise_adder.run(event_types[i], station, detector, amplitude=amplitude, min_freq=min_freq, max_freq=max_freq, type="rayleigh")
             elif noise_source == "galactic":
-                raise NotImplementedError()
+                galactic_noise_adder.run(event_types[i], station, detector)
 
         if include_sum:
             traces_sum = np.zeros((len(channel_ids), nr_samples))
@@ -156,11 +160,11 @@ if __name__ == "__main__":
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
     else:
-        logging.getLogger().setLevel(logging.WARNING)
+        logging.getLogger().setLevel(logging.ERROR)
     print(save_dir)
 
     station_id = args.station
-    channels_to_include = [0, 4]
+    channels_to_include = config["channels_to_include"]
 
 
     channel_types = {"VPol" : [0, 1, 2, 3, 5, 6, 7, 9, 10, 22, 23],
@@ -190,8 +194,7 @@ if __name__ == "__main__":
 
     noise_sources = config["noise_sources"]
     include_sum = config["include_sum"]
-
-    temperature_file = "/home/ruben/Documents/projects/RNO-G_noise_study/sim/library/eff_temperature_-100_ntheta100.json"
+    electronic_temperature = config["electronic_temperature"] * units.kelvin
 
     event_writer = eventWriter()
 
@@ -201,7 +204,7 @@ if __name__ == "__main__":
                                              choose_channels = channels_to_include,
                                              include_det_signal_chain=config["include_det_signal_chain"],
                                              noise_sources=noise_sources, include_sum=include_sum,
-                                             temperature_file=temperature_file,
+                                             electronic_temperature=electronic_temperature,
                                              passband=[10 * units.MHz, 1600 * units.MHz]
                                              )
 
@@ -239,12 +242,12 @@ if __name__ == "__main__":
         events_per_batch = 1
         events = events_process(0)
 
-        labels = ["ice", "electronic", "sum"]
+        labels = ["ice", "electronic", "galactic", "sum"]
         fig, ax = plt.subplots()
         for i, event in enumerate(events):
             event = event[0]
             station = event.get_station()
-            channel = station.get_channel(0)
+            channel = station.get_channel(7)
             nr_samples = 2048
             sampling_rate = 3.2 * units.GHz
             frequencies = np.fft.rfftfreq(nr_samples, d = 1./sampling_rate)

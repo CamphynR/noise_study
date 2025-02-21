@@ -24,6 +24,7 @@ if __name__ == "__main__":
     noise_sources = config["noise_sources"]
     include_sum = config["include_sum"]
     channel_ids = config["channels_to_include"]
+    electronic_temperature = config["electronic_temperature"]
     
 
 
@@ -37,7 +38,15 @@ if __name__ == "__main__":
         if include_sum:
             labels += ["sum"]
         
+        if args.data is not None:
+            frequencies, frequency_spectrum = read_freq_spec_file(args.data)
+            ax.plot(frequencies, frequency_spectrum[channel_id], label = "data")
+        
         for i, sim in enumerate(args.sims):
+            if noise_sources[i] == "electronic":
+                labels[i] += f" (T = {electronic_temperature} K)"
+            elif noise_sources[i] == "ice":
+                labels[i] += " (T = ~240 K)"
             frequencies, frequency_spectrum = read_freq_spec_file(sim)
             ax.plot(frequencies, frequency_spectrum[channel_id], label=labels[i])
             ax.legend()

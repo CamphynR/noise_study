@@ -44,7 +44,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if args.data_dir == None:
-        files = glob.glob("/home/ruben/Documents/data/noise_study/simulations/thermal_noise_traces/job_2025_02_19_11/station23/run**/events_batch*.nur", recursive=True)
+        files = glob.glob("/home/ruben/Documents/data/noise_study/simulations/thermal_noise_traces/job_2025_02_19_16/station23/run**/events_batch*.nur", recursive=True)
         print(files)
     else:
         root_dir = glob.glob(f"{args.data_dir}/station{args.station}/run{args.run}")
@@ -63,7 +63,7 @@ if __name__ == '__main__':
 #    freq = np.fft.rfftfreq(2048, d = 1/fs)
 #    ft = fft.time2freq(trace, fs)
 
-    freqs, ft = read_freq_spectrum_from_nur(files, channel_id=0)
+    freqs, ft = read_freq_spectrum_from_nur(files, channel_id=4)
 
 #    rms = np.sqrt(np.mean(np.abs(ft)**2))
 #    idx = np.where(np.abs(ft) > 4*rms)[0]
