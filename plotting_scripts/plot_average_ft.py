@@ -48,6 +48,7 @@ if __name__ == "__main__":
             elif noise_sources[i] == "ice":
                 labels[i] += " (T = ~240 K)"
             frequencies, frequency_spectrum = read_freq_spec_file(sim)
+                
             ax.plot(frequencies, frequency_spectrum[channel_id], label=labels[i])
             ax.legend()
 
