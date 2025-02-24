@@ -183,6 +183,7 @@ def calculate_average_fft(reader, detector, config, args, logger, directory, cle
     clean = "raw" if args.skip_clean else "clean"
 
     average_frequency_spectrum = np.zeros((nr_channels, len(frequencies)))
+    squared_frequency_spectrum = np.zeros((nr_channels, len(frequencies)))
     nr_events = 0
     for event in reader.run():
         nr_events += 1
@@ -201,9 +202,10 @@ def calculate_average_fft(reader, detector, config, args, logger, directory, cle
             spectrum = channel.get_frequency_spectrum()
             spectrum = np.abs(spectrum)
             average_frequency_spectrum[channel_id] += spectrum
+            squared_frequency_spectrum[channel_id] += spectrum**2
 
             if args.test:
-                if nr_events == 0:
+                if nr_events == 1:
                     if channel_id == 0:
                         plt.plot(frequencies, spectrum)
                         plt.xlabel("freq / GHz")
@@ -219,12 +221,15 @@ def calculate_average_fft(reader, detector, config, args, logger, directory, cle
 
 
     average_frequency_spectrum /= nr_events
+    squared_frequency_spectrum /= nr_events
+    var_frequency_spectrum = squared_frequency_spectrum - average_frequency_spectrum**2
     
     header = {}
     result_dict = {"header" : header,
                    "time" : station.get_station_time(),
                    "freq" : frequencies,
-                   "frequency_spectrum" : average_frequency_spectrum}
+                   "frequency_spectrum" : average_frequency_spectrum,
+                   "var_frequency_spectrum" : var_frequency_spectrum}
 
     if config["save"]:
         filename = f"{directory}/station{station_id}/{clean}/average_ft"
@@ -503,7 +508,9 @@ if __name__ == "__main__":
     for i, reader in enumerate(rnog_reader):
         output = parse_data(reader, det, config=config, args=args, logger=logger, calculation_function=function, folder_appendix=folder_appendix[i])
     dt = time.time() - t0
-    print(f"code took {dt} for {len(reader.reader.get_events_information())} events")
+
+    if np.any([run_file.endswith(".root") for run_file in run_files]):
+        print(f"code took {dt} for {len(reader.reader.get_events_information())} events")
 
 #    output = parse_data(rnog_reader, det, config=config, args=args, logger=logger, calculation_function=populate_spec_amplitude_histogram)
     
