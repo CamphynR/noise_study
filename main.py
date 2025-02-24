@@ -224,7 +224,7 @@ def calculate_average_fft(reader, detector, config, args, logger, directory, cle
     squared_frequency_spectrum /= nr_events
     var_frequency_spectrum = squared_frequency_spectrum - average_frequency_spectrum**2
     
-    header = {}
+    header = {"nr_events" : nr_events}
     result_dict = {"header" : header,
                    "time" : station.get_station_time(),
                    "freq" : frequencies,
@@ -233,6 +233,8 @@ def calculate_average_fft(reader, detector, config, args, logger, directory, cle
 
     if config["save"]:
         filename = f"{directory}/station{station_id}/{clean}/average_ft"
+        if args.batch_i is not None:
+            filename += f"_batch{args.batch_i}"
         filename += ".pickle"
         print(f"Saving as {filename}")
         with open(filename, "wb") as f:
@@ -252,24 +254,26 @@ def populate_spec_amplitude_histogram(reader, detector, config, args, logger, di
     clean_data = not args.skip_clean
     clean = "raw" if args.skip_clean else "clean"
     
-    # very bruteforce way to get an idea of spectrum scale
-    for event in reader.run():
-        station = event.get_station()
-        spec_max = 0
-        for channel in station.iter_channels():
-            if channel.get_id() not in config["channels_to_include"]:
-                continue
-            frequencies = channel.get_frequencies()
-            frequency_spectrum = channel.get_frequency_spectrum()
-            spec_max_ch = np.max(np.abs(frequency_spectrum))
-            if spec_max_ch > spec_max:
-                spec_max = spec_max_ch
-        break 
+    if args.nr_batches is None:
+        # very bruteforce way to get an idea of spectrum scale
+        for event in reader.run():
+            station = event.get_station()
+            spec_max = 0
+            for channel in station.iter_channels():
+                if channel.get_id() not in config["channels_to_include"]:
+                    continue
+                frequencies = channel.get_frequencies()
+                frequency_spectrum = channel.get_frequency_spectrum()
+                spec_max_ch = np.max(np.abs(frequency_spectrum))
+                if spec_max_ch > spec_max:
+                    spec_max = spec_max_ch
+            break 
+        hist_range = [0, spec_max]
+        config["hist_range"] = hist_range
 
-    hist_range = [0, spec_max]
-    config["hist_range"] = hist_range
+
     bin_edges = np.linspace(hist_range[0], hist_range[1], nr_bins + 1)
-    bin_centres = bin_edges[:-1] + np.diff(bin_edges[0:2])/2
+    bin_centres = bin_edges[:-1] + np.diff(bin_edges[0:2]) / 2
     
     # populate histogram per channel and per frequency
     # so shape of data structure storing histograms is (channels, frequencies, bins)
@@ -278,7 +282,9 @@ def populate_spec_amplitude_histogram(reader, detector, config, args, logger, di
     # construct bin edges of the histograms
     bin_edges = np.linspace(hist_range[0], hist_range[1], nr_bins + 1)
 
+    nr_events = 0
     for event in reader.run():
+        nr_events += 1
         station = event.get_station(args.station)
         
         if clean_data:
@@ -297,7 +303,9 @@ def populate_spec_amplitude_histogram(reader, detector, config, args, logger, di
             bin_indices = np.searchsorted(bin_edges[1:-1], spectrum)
             spec_amplitude_histograms[channel_id, np.arange(len(frequencies)), bin_indices] += 1
     
-    header = {}
+    header = {"nr_events" : nr_events,
+              "hist_range" : hist_range,
+              "bin_centres" : bin_centres}
     result_dict = {"header" : header,
                    "time" : station.get_station_time(),
                    "freq" : frequencies,
@@ -305,6 +313,8 @@ def populate_spec_amplitude_histogram(reader, detector, config, args, logger, di
 
     if config["save"]:
         filename = f"{directory}/station{station_id}/{clean}/spec_amplitude_histograms"
+        if args.batch_i is not None:
+            filename += f"_batch{args.batch_i}"
         filename += ".pickle"
         print(f"Saving as {filename}")
         with open(filename, "wb") as f:
@@ -389,12 +399,14 @@ if __name__ == "__main__":
     
     parser.add_argument("--skip_clean", action = "store_true")
     parser.add_argument("--test", action = "store_true", help = "enables test mode, which only uses one run of data ")
-    parser.add_argument("--nr_batches", default=None, help="only for data, sims are fast enough")
-    parser.add_argument("--batch_i", default=None, help="Only for data, sims are fast enough")
+    parser.add_argument("--nr_batches", type=int, default=None, help="only for data, sims are fast enough")
+    parser.add_argument("--batch_i", type=int, default=None, help="Only for data, sims are fast enough")
     args = parser.parse_args()
+
 
     with open(args.config, "r") as config_json:
         config = json.load(config_json)
+
 
     logger = logging.getLogger(__name__)
     log_level = logging.DEBUG if args.debug else logging.WARNING
@@ -437,7 +449,9 @@ if __name__ == "__main__":
         if np.any([run_file.endswith(".root") for run_file in run_files]):
             root_dirs = [root_dir for root_dir in root_dirs if not int(os.path.basename(root_dir).split("run")[-1]) in broken_runs_list]
             if args.nr_batches is not None:
-                root_dirs = np.split(root_dirs, args.nr_batches)
+                root_dirs = np.array(root_dirs)
+                root_dirs = np.array_split(root_dirs, args.nr_batches)
+                print(root_dirs)
                 root_dirs = root_dirs[args.batch_i]
             channels_to_include = list(np.arange(24))
             config["channels_to_include"] = channels_to_include
@@ -462,7 +476,7 @@ if __name__ == "__main__":
 
 
     if args.test:
-        root_dirs = root_dirs[:3]
+        root_dirs = root_dirs[:100]
 
     selectors = [lambda event_info : event_info.triggerType == "FORCE"]
 
@@ -473,6 +487,7 @@ if __name__ == "__main__":
 
 
 
+    print(root_dirs)
 
     if np.any([run_file.endswith(".root") for run_file in run_files]):
         calibration = config["calibration"][str(args.station)]
