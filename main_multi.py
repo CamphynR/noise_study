@@ -250,12 +250,15 @@ def populate_spec_amplitude_histogram(reader, detector, config, args, logger, di
             # to get a bin number you shoyld only pass the INNER edges to np.searchsorted
             bin_indices = np.searchsorted(bin_edges[1:-1], spectrum)
             spec_amplitude_histograms[channel_id, np.arange(len(frequencies)), bin_indices] += 1
+
+    event_info = reader.reader.get_events_information(["run", "eventNumber"])
     
     header = {"nr_events" : nr_events,
               "hist_range" : hist_range,
               "bin_centres" : bin_centres,
               "begin_time" : begin_time,
-              "end_time" : end_time}
+              "end_time" : end_time,
+              "event_info" : event_info}
     result_dict = {"header" : header,
                    "time" : station.get_station_time(),
                    "freq" : frequencies,

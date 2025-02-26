@@ -40,7 +40,7 @@ if __name__ == "__main__":
             i += 1
             try:
                 ds = mattak.Dataset.Dataset(station = 0, run = 0, data_path=root_dir, backend = "pyroot")
-            except (ValueError, OSError, ReferenceError, NameError) as error:
+            except (ValueError, OSError, ReferenceError, FileNotFoundError, NameError) as error:
                 print(f"{error} for {root_dir}")
                 run_nr = root_dir.split("/")[-1].split("run")[-1]
                 broken_runs[str(run_nr)] = [root_dir, error]
@@ -48,5 +48,5 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print(f"Sweep interupted")
     print(broken_runs)
-    with open(f"/user/rcamphyn/noise_study/broken_runs/station{args.station}.pickle", "wb") as f:
+    with open(f"/home/ulb/iihe/rcamphyn/noise_study/broken_runs/station{args.station}.pickle", "wb") as f:
         pickle.dump(broken_runs, f)
