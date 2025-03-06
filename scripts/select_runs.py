@@ -29,13 +29,12 @@ from astropy.time import Time
 import NuRadioReco
 import NuRadioReco.modules
 import NuRadioReco.modules.RNO_G
-from NuRadioReco.modules.RNO_G.dataProviderRNOG import dataProviderRNOG
+from NuRadioReco.modules.io.RNO_G.readRNOGDataMattak import readRNOGData
 import NuRadioReco.modules.RNO_G.hardwareResponseIncorporator
 from NuRadioReco.utilities import units
 from NuRadioReco.detector import detector
 from NuRadioReco.modules import channelBandPassFilter
 from NuRadioReco.modules.io.eventReader import eventReader
-#from NuRadioReco.modules.io.RNO_G.readRNOGDataMattak import readRNOGData
 from NuRadioReco.framework.base_trace import BaseTrace
 from NuRadioReco.modules.RNO_G.hardwareResponseIncorporator import hardwareResponseIncorporator
 
@@ -108,6 +107,7 @@ if __name__ == "__main__":
     root_dirs = glob.glob(f"{data_dir}/station{args.station}/run*")
     root_dirs = [root_dir for root_dir in root_dirs if not int(os.path.basename(root_dir).split("run")[-1]) in broken_runs_list]
     root_dirs = sorted(root_dirs)
+
     channels_to_include = list(np.arange(24))
     config["channels_to_include"] = channels_to_include
 
@@ -121,27 +121,36 @@ if __name__ == "__main__":
 
 
     calibration = config["calibration"][str(args.station)]
-    mattak_kw = dict(backend="pyroot", read_daq_status=False, read_run_info=False)
+    mattak_kw = config["mattak_kw"]
     # note if no runtable provided, runtable is queried from the database
-    rnog_reader = dataProviderRNOG()
-    print("beginning reader")
-    rnog_reader.begin(root_dirs,
-                      reader_kwargs = dict(
-                      selectors=selectors,
-                      read_calibrated_data=calibration == "full",
-                      apply_baseline_correction="approximate",
-                      convert_to_voltage=calibration == "linear",
-                      select_runs=True,
-                      run_types=["physics"],
-                      run_time_range=run_time_range,
-                      max_trigger_rate=config["max_trigger_rate"] * units.Hz,
-                      mattak_kwargs=mattak_kw),
-                      det=det)
 
-    runs = rnog_reader.reader.get_events_information("run")
-    runs = np.unique(runs)
-    print(runs)
+    run_list = []
+    for root_dir_list in root_dirs:
+        rnog_reader = readRNOGData()
+        print("beginning reader")
+        try:
+            rnog_reader.begin(root_dir_list,
+                            selectors=selectors,
+                            read_calibrated_data=calibration == "full",
+                            apply_baseline_correction="approximate",
+                            convert_to_voltage=calibration == "linear",
+                            select_runs=True,
+                            run_types=["physics"],
+                            run_time_range=run_time_range,
+                            max_trigger_rate=config["max_trigger_rate"] * units.Hz,
+                            mattak_kwargs=mattak_kw)
+
+            runs = [dic["run"] for dic in rnog_reader.get_events_information("run").values()]
+            runs = np.unique(runs)
+            run_list += runs.tolist()
+            rnog_reader.end()
+            del rnog_reader
+        except FileNotFoundError:
+            continue
+
+
+    print(run_list)
 
     json_path = f"selected_runs_station{args.station}.json"
     with open(json_path, "w") as json_file:
-        json.dump(list(runs), json_file)
+        json.dump(run_list, json_file)
