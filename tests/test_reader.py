@@ -11,6 +11,7 @@ import os
 from NuRadioReco.detector import detector
 from NuRadioReco.modules.RNO_G.dataProviderRNOG import dataProviderRNOG
 from NuRadioReco.modules.io.RNO_G import readRNOGDataMattak
+from NuRadioReco.modules.channelSinewaveSubtraction import channelSinewaveSubtraction
 from NuRadioReco.utilities import units
 #from NuRadioReco.modules.io.RNO_G.readRNOGDataMattak import readRNOGData
 
@@ -29,11 +30,10 @@ if __name__ == "__main__":
     parser.add_argument("-r", "--run",
                         default = None,
                         nargs = "+")
-    parser.add_argument("--debug", action = "store_true")
     args = parser.parse_args()
 
     logger = logging.getLogger(__name__)
-    log_level = logging.DEBUG if args.debug else logging.WARNING
+    log_level = logging.DEBUG
     logging.basicConfig(level = log_level)
 
 
@@ -66,18 +66,40 @@ if __name__ == "__main__":
 
 
     calibration = "linear"
-    mattak_kw = dict(backend="pyroot", read_daq_status=False, read_run_info=False)
+    mattak_kw = dict(backend="pyroot", read_daq_status=False, read_run_info=False, cache_calibration=False)
 
     # note if no runtable provided, runtable is queried from the database
     rnog_reader = dataProviderRNOG()
     logger.debug("beginning reader")
+    selectors = [lambda eventInfo : eventInfo.triggerType == "FORCE"]
     rnog_reader.begin(root_dirs,
                         reader_kwargs = dict(
                         read_calibrated_data=calibration == "full",
                         apply_baseline_correction="approximate",
                         convert_to_voltage=calibration == "linear",
+                        selectors = selectors,
                         mattak_kwargs=mattak_kw),
                         det=det)
 
+    sine_subtraction = channelSinewaveSubtraction()
+    sine_subtraction.begin()
+
     for event in rnog_reader.run():
         print(event.get_id())
+        station = event.get_station()
+        sine_subtraction.run(event, station, det)
+        station = event.get_station()
+        channel = station.get_channel(0)
+        freq = channel.get_frequencies()
+        ft = channel.get_frequency_spectrum()
+        plt.plot(freq, np.abs(ft))
+        plt.savefig("test_ft")
+        plt.close()
+
+        times = channel.get_times()
+        trace = channel.get_trace()
+        plt.plot(times, trace)
+        plt.savefig("trace")
+        break
+    rnog_reader.end()
+    del rnog_reader
