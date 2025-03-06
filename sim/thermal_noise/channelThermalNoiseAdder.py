@@ -70,7 +70,7 @@ class channelThermalNoiseAdder:
 
 
 
-    def begin(self):
+    def begin(self, nr_phi_bins=6):
         """
         Set up important parameters for the module
 
@@ -99,6 +99,8 @@ class channelThermalNoiseAdder:
         self.nr_theta_bins = len(self.thetas)
         self.channel_depths = {0 : -100, 4 : -100,
                                7 : -40}
+
+        self.phis = np.linspace(0 * units.degree, 360 * units.degree, nr_phi_bins)
         return
 
 
@@ -124,7 +126,7 @@ class channelThermalNoiseAdder:
             The detector description
         passband: list of float, optional
             Lower and upper bound of the frequency range in which noise shall be
-            added. The default (no passband specified) is [10, 1000] MHz
+            added. The default (no passband specified) is [10, 1600] MHz
         """
 
         # check that for all channels channel.get_frequencies() is identical
@@ -144,7 +146,7 @@ class channelThermalNoiseAdder:
         d_f = freqs[2] - freqs[1]
 
         if passband is None:
-            passband = [10 * units.MHz, 1000 * units.MHz]
+            passband = [10 * units.MHz, 1600 * units.MHz]
 
         passband_filter = (freqs > passband[0]) & (freqs < passband[1])
 
@@ -161,60 +163,102 @@ class channelThermalNoiseAdder:
             channel_spectra[channel.get_id()] = channel.get_frequency_spectrum()
 
         d_thetas = np.diff(self.thetas)
+        d_phis = np.diff(self.phis)
+#        d_phi = 2 * np.pi
+        for d_phi in d_phis:
+            for theta_i, (theta, d_theta) in enumerate(zip(self.thetas, d_thetas)):
+                solid_angle = self.solid_angle(theta, d_theta, d_phi)
 
-        d_phi = 2 * np.pi
-        for theta_i, (theta, d_theta) in enumerate(zip(self.thetas, d_thetas)):
-            solid_angle = self.solid_angle(theta, d_theta, d_phi)
+                noise_spectrum = np.zeros((3, freqs.shape[0]), dtype=complex)
+                channel_noise_spec = np.zeros_like(noise_spectrum)
+                for channel in station.iter_channels():
+                    channel_id = channel.get_id()
+                    depth = self.channel_depths[channel_id]
+                    eff_temperature = self.eff_temperature[depth]
+                    # calculate spectral radiance of radio signal using rayleigh-jeans law
+                    spectral_radiance = (2. * (scipy.constants.Boltzmann * units.joule / units.kelvin)
+                        * freqs[passband_filter] ** 2 * eff_temperature[theta_i] * solid_angle / c_vac ** 2)
+                    spectral_radiance[np.isnan(spectral_radiance)] = 0
 
-            noise_spectrum = np.zeros((3, freqs.shape[0]), dtype=complex)
-            channel_noise_spec = np.zeros_like(noise_spectrum)
-            for channel in station.iter_channels():
-                channel_id = channel.get_id()
-                depth = self.channel_depths[channel_id]
-                eff_temperature = self.eff_temperature[depth]
-                # calculate spectral radiance of radio signal using rayleigh-jeans law
-                spectral_radiance = (2. * (scipy.constants.Boltzmann * units.joule / units.kelvin)
-                    * freqs[passband_filter] ** 2 * eff_temperature[theta_i] * solid_angle / c_vac ** 2)
-                spectral_radiance[np.isnan(spectral_radiance)] = 0
+                    # calculate radiance per energy bin
+                    spectral_radiance_per_bin = spectral_radiance * d_f
 
-                # calculate radiance per energy bin
-                spectral_radiance_per_bin = spectral_radiance * d_f
+                    # calculate electric field per frequency bin from the radiance per bin
+                    efield_amplitude = np.sqrt(
+                        spectral_radiance_per_bin / (c_vac * scipy.constants.epsilon_0 * (
+                                units.coulomb / units.V / units.m))) / d_f
 
-                # calculate electric field per frequency bin from the radiance per bin
-                efield_amplitude = np.sqrt(
-                    spectral_radiance_per_bin / (c_vac * scipy.constants.epsilon_0 * (
-                            units.coulomb / units.V / units.m))) / d_f
+                    # assign random phases to electric field
+                    phases = np.random.uniform(0, 2. * np.pi, len(spectral_radiance))
 
-                # assign random phases to electric field
-                phases = np.random.uniform(0, 2. * np.pi, len(spectral_radiance))
+                    noise_spectrum[1][passband_filter] = np.exp(1j * phases) * efield_amplitude
+                    noise_spectrum[2][passband_filter] = np.exp(1j * phases) * efield_amplitude
 
-                noise_spectrum[1][passband_filter] = np.exp(1j * phases) * efield_amplitude
-                noise_spectrum[2][passband_filter] = np.exp(1j * phases) * efield_amplitude
+                    antenna_pattern = self.__antenna_pattern_provider.load_antenna_pattern(
+                        detector.get_antenna_model(station.get_id(), channel.get_id()))
+                    antenna_orientation = detector.get_antenna_orientation(station.get_id(), channel.get_id())
 
-                antenna_pattern = self.__antenna_pattern_provider.load_antenna_pattern(
-                    detector.get_antenna_model(station.get_id(), channel.get_id()))
-                antenna_orientation = detector.get_antenna_orientation(station.get_id(), channel.get_id())
+                    # add random polarizations and phase to electric field
+                    polarizations = np.random.uniform(0, 2. * np.pi, len(spectral_radiance))
 
-                # add random polarizations and phase to electric field
-                polarizations = np.random.uniform(0, 2. * np.pi, len(spectral_radiance))
+                    channel_noise_spec[1][passband_filter] = noise_spectrum[1][passband_filter] * np.cos(polarizations)
+                    channel_noise_spec[2][passband_filter] = noise_spectrum[2][passband_filter] * np.sin(polarizations)
 
-                channel_noise_spec[1][passband_filter] = noise_spectrum[1][passband_filter] * np.cos(polarizations)
-                channel_noise_spec[2][passband_filter] = noise_spectrum[2][passband_filter] * np.sin(polarizations)
+                    # fold electric field with antenna response
+    #                antenna_response = antenna_pattern.get_antenna_response_vectorized(freqs, zenith, azimuth,
+    #                                                                                   *antenna_orientation)
 
-                # fold electric field with antenna response
-#                antenna_response = antenna_pattern.get_antenna_response_vectorized(freqs, zenith, azimuth,
-#                                                                                   *antenna_orientation)
+                    antenna_response = self.get_cached_antenna_response(antenna_pattern, theta, 0,
+                                                                        *antenna_orientation)
+                    channel_noise_spectrum = (
+                        antenna_response['theta'] * channel_noise_spec[1]
+                        + antenna_response['phi'] * channel_noise_spec[2]
+                    )
 
-                antenna_response = self.get_cached_antenna_response(antenna_pattern, theta, 0,
-                                                                    *antenna_orientation)
-                channel_noise_spectrum = (
-                    antenna_response['theta'] * channel_noise_spec[1]
-                    + antenna_response['phi'] * channel_noise_spec[2]
-                )
-
-                # add noise spectrum from pixel in the sky to channel spectrum
-                channel_spectra[channel.get_id()] += channel_noise_spectrum
+                    # add noise spectrum from pixel in the sky to channel spectrum
+                    channel_spectra[channel.get_id()] += channel_noise_spectrum
 
         # store the updated channel spectra
         for channel in station.iter_channels():
             channel.set_frequency_spectrum(channel_spectra[channel.get_id()], "same")
+
+
+if __name__ == "__main__":
+    import datetime
+    import matplotlib.pyplot as plt
+    from NuRadioReco.detector.RNO_G.rnog_detector import Detector
+    from NuRadioReco.framework.event import Event
+    from NuRadioReco.framework.station import Station
+    from NuRadioReco.framework.channel import Channel
+
+    station_id = 23
+    nr_samples = 2048
+    sampling_rate = 3.2 * units.GHz
+    frequencies = np.fft.rfftfreq(nr_samples, d=1./sampling_rate)
+    channel_ids = [0]
+
+    detector = Detector(database_connection='RNOG_public', log_level=logging.NOTSET,
+                        select_stations=station_id)
+    detector_time = datetime.datetime(2022, 8, 1)
+    detector.update(detector_time)
+
+    event = Event(run_number=-1, event_id=-1)
+    station = Station(station_id)
+    station.set_station_time(detector.get_detector_time())
+    for channel_id in channel_ids:
+        channel = Channel(channel_id)
+        channel.set_frequency_spectrum(np.zeros_like(frequencies, dtype=np.complex128), sampling_rate)
+        station.add_channel(channel)
+    event.set_station(station)
+
+    thermal_noise_adder = channelThermalNoiseAdder()
+    thermal_noise_adder.begin()
+    thermal_noise_adder.run(event, station, detector)
+
+    station = event.get_station()
+    channel = station.get_channel(0)
+    plt.plot(channel.get_times(), channel.get_trace())
+    plt.show()
+
+    plt.plot(channel.get_frequencies(), np.abs(channel.get_frequency_spectrum()))
+    plt.show()
