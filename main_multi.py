@@ -92,7 +92,7 @@ def construct_folder_hierarchy(config, args, folder_appendix=None):
     # defining a savename overwrites the data structure and simply saves everything in a file,
     # useful when running one script for multiple stations
     date = datetime.datetime.now().strftime("%Y_%m_%d")
-    directory = f"{save_dir}/{function_name}/job_{date}_no_cw"
+    directory = f"{save_dir}/{function_name}/job_{date}"
     if folder_appendix is not None:
         directory += f"_{folder_appendix}"
     if args.test:
