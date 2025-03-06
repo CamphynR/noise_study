@@ -18,10 +18,16 @@ from NuRadioReco.modules.io.eventWriter import eventWriter
 from NuRadioReco.modules.RNO_G.hardwareResponseIncorporator import hardwareResponseIncorporator
 from NuRadioReco.utilities import units
 
-#from dbAmplifier import dbAmplifier
+from dbAmplifier import dbAmplifier
 from channelThermalNoiseAdder import channelThermalNoiseAdder
+from modules.channelGalacticSunNoiseAdder import channelGalacticSunNoiseAdder
+from modules.systemResponseTimeDomainIncorporator import systemResonseTimeDomainIncorporator
+
 from utilities.utility_functions import read_pickle, write_pickle, read_config, create_nested_dir
 from temp_to_noise import temp_to_volt
+
+
+np.random.seed(2025)
 
 
 def create_sim_event(station_id, channel_ids, detector, frequencies, sampling_rate):
@@ -78,12 +84,19 @@ def create_thermal_noise_events(nr_events, station_id, detector,
     generic_noise_adder = channelGenericNoiseAdder()
     generic_noise_adder.begin()
 
-    galactic_noise_adder = channelGalacticNoiseAdder()
+    # galactic_noise_adder = channelGalacticNoiseAdder()
+    # galactic_noise_adder.begin(freq_range=[min_freq, max_freq],
+    #                            caching=True)
+    galactic_noise_adder = channelGalacticSunNoiseAdder()
     galactic_noise_adder.begin(freq_range=[min_freq, max_freq],
-                               caching=True)
+                              caching=True)
 
     hardware_response = hardwareResponseIncorporator()
     hardware_response.begin()
+
+    system_response = systemResonseTimeDomainIncorporator()
+    system_response.begin(response_path="sim/library/deep_impulse_responses.json")
+
 
     events = []
     for _ in range(nr_events):
@@ -125,7 +138,8 @@ def create_thermal_noise_events(nr_events, station_id, detector,
             for event in event_types:
                 station = event.get_station()
                 print("including the detector response")
-                hardware_response.run(event, station, det=detector, sim_to_data=True)
+#                hardware_response.run(event, station, det=detector, sim_to_data=True)
+                system_response.run(event, station, detector)
         events.append(event_types)
     
     events = np.array(events)
@@ -145,7 +159,7 @@ if __name__ == "__main__":
 
     save_dir = f"{config['save_dir']}/simulations/thermal_noise_traces" 
     date = datetime.datetime.now().strftime("%Y_%m_%d_%H")
-    save_dir +=f"/job_{date}"
+    save_dir +=f"/job_{date}_sun"
     if args.debug:
         save_dir += "_test"
     create_nested_dir(save_dir)
