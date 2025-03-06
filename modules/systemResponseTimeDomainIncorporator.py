@@ -32,11 +32,6 @@ def open_response_file(response_path):
 
 
 
-
-
-
-
-
 class systemResonseTimeDomainIncorporator():
     def __init__(self):
         # mapping to map channels to the keys in the json file
@@ -45,6 +40,7 @@ class systemResonseTimeDomainIncorporator():
                                 "ch9_6dB" : [9, 10, 22, 23]}
         self.channel_mapping = {key: group for group, keys in self.channel_mapping.items() for key in keys}
         return
+
 
     def begin(self, response_path):
         self.response = open_response_file(response_path)
@@ -55,7 +51,6 @@ class systemResonseTimeDomainIncorporator():
             sampling_rate = channel.get_sampling_rate()
             trace_with_response = self.apply_response(channel, self.response)
             channel.set_trace(trace_with_response, sampling_rate)
-
 
 
     def apply_response(self, channel, response_dic):
@@ -79,6 +74,19 @@ class systemResonseTimeDomainIncorporator():
         print(len(trace_with_response))
         assert len(trace_with_response) == len(channel.get_trace())
         return trace_with_response
+
+    
+    def get_response(self, channel_id):
+        if channel_id in self.channel_mapping.keys():
+            response_key = self.channel_mapping[channel_id]
+        else:
+            response_key = "ch2"
+        
+        times = self.response[f"{response_key}_times"]
+        response = self.response[response_key]
+
+        return times, response 
+
 
 
 if __name__ == "__main__":
