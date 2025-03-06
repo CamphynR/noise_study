@@ -30,14 +30,17 @@ if __name__ == "__main__":
 
     assert np.all(sum_frequencies == frequencies)
 
-    channel_id = 0
-    x_data = frequencies
-    y_data = data_spectrum[channel_id]
-    y_err = var_data_spectrum[channel_id]
+    fit_range = [200*units.MHz, 600 * units.MHz]
+    fit_idxs = np.where(np.logical_and(fit_range[0] < frequencies, frequencies < fit_range[1]))
+
+    channel_id = 4
+    x_data = frequencies[fit_idxs]
+    y_data = data_spectrum[channel_id][fit_idxs]
+    y_err = var_data_spectrum[channel_id][fit_idxs]
 
     def fit_gain_factor(freq, gain):
-        spectrum = sum_spectrum[channel_id]
-        index = np.nonzero(freq == frequencies)
+        spectrum = sum_spectrum[channel_id][fit_idxs]
+        index = np.nonzero(freq == x_data)
         return gain * np.squeeze(spectrum[index])
 
     fit_function = fit_gain_factor
