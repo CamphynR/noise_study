@@ -61,6 +61,11 @@ def select_config(config_value : str, options : dict) -> np.ndarray:
             return options[config]
 
 
+def open_select_runs_list(select_runs_path):
+    with open(select_runs_path, "r") as select_runs_file:
+        select_runs_list = json.load(select_runs_file)
+    return select_runs_list
+
 def create_nested_dir(directory):
     try:
         os.makedirs(directory)
@@ -87,7 +92,7 @@ def construct_folder_hierarchy(config, args, folder_appendix=None):
     # defining a savename overwrites the data structure and simply saves everything in a file,
     # useful when running one script for multiple stations
     date = datetime.datetime.now().strftime("%Y_%m_%d")
-    directory = f"{save_dir}/{function_name}/job_{date}"
+    directory = f"{save_dir}/{function_name}/job_{date}_no_cw"
     if folder_appendix is not None:
         directory += f"_{folder_appendix}"
     if args.test:
@@ -348,6 +353,7 @@ if __name__ == "__main__":
     parser.add_argument("--debug", action = "store_true")
     
     parser.add_argument("--config", help = "path to config.json file", default = "config.json")
+    parser.add_argument("--select_runs_path", help = "path to select_runs json file", default=None)
     parser.add_argument("--filename_appendix", default = "")
     
     parser.add_argument("--skip_clean", action = "store_true")
@@ -395,7 +401,12 @@ if __name__ == "__main__":
     if args.run is not None:
         root_dirs = glob.glob(f"{data_dir}/station{args.station}/run{args.run}/")
     else:
-        root_dirs = glob.glob(f"{data_dir}/station{args.station}/run*")
+        if args.select_runs_path is not None:
+            select_runs_list = open_select_runs_list(args.select_runs_path)
+            root_dirs = [glob.glob(f"{data_dir}/station{args.station}/run{run}")[0] for run in select_runs_list]
+        else:
+            root_dirs = glob.glob(f"{data_dir}/station{args.station}/run*")
+
         run_files = glob.glob(f"{data_dir}/station{args.station}/run**/*", recursive=True)
         if np.any([run_file.endswith(".root") for run_file in run_files]):
             root_dirs = [root_dir for root_dir in root_dirs if not int(os.path.basename(root_dir).split("run")[-1]) in broken_runs_list]
@@ -441,26 +452,35 @@ if __name__ == "__main__":
     def batch_process(batch_i):
         root_dirs_batch = root_dirs[batch_i]
         print(root_dirs_batch)
-        print("GOT HERE")
         # note if no runtable provided, runtable is queried from the database
         rnog_reader = dataProviderRNOG()
         logger.debug("beginning reader")
-        rnog_reader.begin(root_dirs_batch,
-                          reader_kwargs = dict(
-                          selectors=selectors,
-                          read_calibrated_data=calibration == "full",
-                          apply_baseline_correction="approximate",
-                          convert_to_voltage=calibration == "linear",
-                          select_runs=True,
-                          run_types=["physics"],
-                          run_time_range=run_time_range,
-                          max_trigger_rate=config["max_trigger_rate"] * units.Hz,
-                          mattak_kwargs=mattak_kw),
-                          det=det)
-        args_temp = copy.copy(args)
-        args_temp.batch_i = batch_i
-        function = functions[config["variable"]]
-        output = parse_data(rnog_reader, det, config=config, args=args_temp, logger=logger, calculation_function=function, folder_appendix=None)
+        try:
+            rnog_reader.begin(root_dirs_batch,
+                            reader_kwargs = dict(
+                            selectors=selectors,
+                            read_calibrated_data=calibration == "full",
+                            apply_baseline_correction="approximate",
+                            convert_to_voltage=calibration == "linear",
+                            select_runs=True,
+                            run_types=["physics"],
+                            run_time_range=run_time_range,
+                            max_trigger_rate=config["max_trigger_rate"] * units.Hz,
+                            mattak_kwargs=mattak_kw),
+                            det=det)
+            args_temp = copy.copy(args)
+            args_temp.batch_i = batch_i
+            function = functions[config["variable"]]
+            output = parse_data(rnog_reader, det, config=config, args=args_temp, logger=logger, calculation_function=function, folder_appendix=None)
+            rnog_reader.end()
+            del rnog_reader
+        except FileNotFoundError:
+            rnog_reader.end()
+            del rnog_reader
+            return
 
-    with multiprocessing.Pool() as p:
-        p.map(batch_process, range(args.nr_batches))
+    if args.batch_i is not None:
+        batch_process(args.batch_i)
+    else:
+        with multiprocessing.Pool() as p:
+            p.map(batch_process, range(args.nr_batches))

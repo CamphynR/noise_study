@@ -314,7 +314,7 @@ def populate_spec_amplitude_histogram(reader, detector, config, args, logger, di
               "bin_centres" : bin_centres,
               "begin_time" : begin_time,
               "end_time" : end_time,
-              "events_info" = event_info}
+              "events_info" : event_info}
     result_dict = {"header" : header,
                    "time" : station.get_station_time(),
                    "freq" : frequencies,
