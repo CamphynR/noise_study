@@ -68,14 +68,16 @@ if __name__ == "__main__":
     normalization_factor = np.sum(spec_amplitude_histograms, axis = -1) * np.diff(bin_edges)[0]
     spec_amplitude_histograms = np.divide(spec_amplitude_histograms, normalization_factor[:, :, np.newaxis])
     
-
+    freq_range = [10*units.MHz, 1000*units.MHz]
+    selection = np.logical_and(freq_range[0] < frequencies, frequencies < freq_range[1])
+    spec_hist_dict["freq"] = frequencies[selection]
 
     channel_mapping = {"PA" : [0, 1, 2, 3], "PS HPol" : [4, 8], "PS VPol" : [5, 6, 7], "helper Vpol" : [9, 10, 22, 23], "helper HPol" : [11, 21]}
 
     sigmas_list = []
     covs_list = []
     for ch in range(24):
-        sigmas, covs = produce_rayleigh_params(bin_centers, spec_amplitude_histograms[ch], rayleigh)
+        sigmas, covs = produce_rayleigh_params(bin_centers, spec_amplitude_histograms[ch][selection], rayleigh)
         sigmas_list.append(sigmas)
         covs_list.append(covs)
 

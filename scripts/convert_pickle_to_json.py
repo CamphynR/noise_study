@@ -18,12 +18,12 @@ def reduce_contents_size(contents, freq_samples=128):
     del contents_cp["header"]["event_info"]
     del contents_cp["spec_amplitude_histograms"]
 
-    step = int(len(contents["freq"])/freq_samples)
+    # step = int(len(contents["freq"])/freq_samples)
 
-    contents_cp["freq"] = [contents["freq"][0]] + contents["freq"][1::step]
-    for channel_id, _ in enumerate(contents["scale_parameters"]):
-        contents_cp["scale_parameters"][channel_id] = [contents["scale_parameters"][channel_id][0]] + contents["scale_parameters"][channel_id][1::step]
-        contents_cp["scale_parameters_cov"][channel_id] = [contents["scale_parameters_cov"][channel_id][0]] + contents["scale_parameters_cov"][channel_id][1::step]
+    # contents_cp["freq"] = [contents["freq"][0]] + contents["freq"][1::step]
+    # for channel_id, _ in enumerate(contents["scale_parameters"]):
+    #     contents_cp["scale_parameters"][channel_id] = [contents["scale_parameters"][channel_id][0]] + contents["scale_parameters"][channel_id][1::step]
+    #     contents_cp["scale_parameters_cov"][channel_id] = [contents["scale_parameters_cov"][channel_id][0]] + contents["scale_parameters_cov"][channel_id][1::step]
 
     return contents_cp
         
@@ -46,7 +46,7 @@ if __name__ == "__main__":
     print(np.array(contents_reduced["scale_parameters"]).shape)
 
     json_path = args.pickle.split(".", 1)[0]
-    json_path += "_test.json"
+    json_path += ".json"
     print(f"Saving as {json_path}")
     with open (json_path, "w") as json_file:
         json.dump(contents_reduced, json_file, cls=NpEncoder)
