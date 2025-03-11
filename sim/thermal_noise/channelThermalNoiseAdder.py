@@ -87,12 +87,11 @@ class channelThermalNoiseAdder:
             The noise temperature of the ambient ice in Kelvin.
         """
         temperature_folder = "/home/ruben/Documents/projects/RNO-G_noise_study/sim/library"
-        self.temperature_files = [f"{temperature_folder}/eff_temperature_-100_ntheta100.json",
-                                  f"{temperature_folder}/eff_temperature_-40_ntheta100.json"]
+        self.temperature_files = [f"{temperature_folder}/eff_temperature_-100m_ntheta100_GL3.json",
+                                  f"{temperature_folder}/eff_temperature_-40m_ntheta100.json"]
 
         self.eff_temperature = {}
         for temperature_file in self.temperature_files:
-            print(temperature_file)
             z_antenna, self.thetas, eff_temperature = self.get_temperature_from_json(temperature_file)
             self.eff_temperature[z_antenna] = eff_temperature
 
@@ -131,9 +130,7 @@ class channelThermalNoiseAdder:
 
         # check that for all channels channel.get_frequencies() is identical
         last_freqs = None
-        print(station.get_channel_ids())
         for channel in station.iter_channels():
-            print(channel)
             if last_freqs is not None and (
                     not np.allclose(last_freqs, channel.get_frequencies(), rtol=0, atol=0.1 * units.MHz)):
                 logger.error("The frequencies of each channel must be the same, but they are not!")
