@@ -18,4 +18,4 @@ trace_mem.txt
 *.pickle
 *.h5
 debug.txt
-plotting_scripts/plot_average_ft.sh
+*.sh
