@@ -116,15 +116,11 @@ if __name__ == "__main__":
         pdf.close()
 
         channel_idx = 0
-        nr_freqs = 8
-        freq_range = [0.2, 0.8]
-        chosen_freqs = frequencies[np.logical_and(freq_range[0] < frequencies, frequencies < freq_range[1])]
-        chosen_freqs = chosen_freqs[::int(len(chosen_freqs)/nr_freqs)]
-        histograms = spec_amplitude_histograms[channel_idx]
-        fig, ax = plt.subplots(nr_freqs, 1, figsize = (12, 8))
-        for i in range(8):
-            j = i * int(len(frequencies)/nr_freqs)
-            ax[i].stairs(histograms[j], edges=bin_edges)
-            ax[i].plot(bin_centers, rayleigh(bin_centers, sigmas_list[channel_idx][j]))
-            ax[i].set_title(f"freq = {chosen_freqs[i]:.2f}")
+        test_idx = 250
+        histograms = spec_amplitude_histograms[channel_idx][test_idx]
+        fig, ax = plt.subplots(figsize = (12, 8))
+        ax.stairs(histograms, edges=bin_edges)
+        ax.plot(bin_centers, rayleigh(bin_centers, sigmas_list[channel_idx][test_idx]))
+        ax.set_title(f"freq = {frequencies[test_idx]}")
+        ax.text(0.6, 5, f"scale param = {sigmas_list[channel_idx][test_idx]}")
         fig.savefig("test")
