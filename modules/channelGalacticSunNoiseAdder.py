@@ -444,8 +444,47 @@ def read_quiet_sun_json(json_path):
 
 
 if __name__ == "__main__":
-    json_path = "/home/ruben/Documents/projects/RNO-G_noise_study/sim/library/quiet_sun_plotDigitizer.json"
+    from datetime import datetime
+    from pygdsm import GSMObserver
+    from NuRadioReco.detector.detector import Detector
+
+
+    # COORDINATES DONT WORK FIX THIS
+
+    def get_local_sun_coordinates(coordinates, time):
+        site_latitude, site_longitude = coordinates
+        site_location = astropy.coordinates.EarthLocation(lat=site_latitude * astropy.units.deg,
+                                                         lon=site_longitude * astropy.units.deg)
+        local_coordinates = astropy.coordinates.AltAz(location=site_location, obstime=time)
+        sun = astropy.coordinates.get_sun(time)
+        local_sun_coordinates = sun.transform_to(local_coordinates)
+        return local_sun_coordinates.zen.radian, local_sun_coordinates.alt.radian
     
+
+    json_path = "/home/ruben/Documents/projects/RNO-G_noise_study/sim/library/quiet_sun_plotDigitizer.json"
+    station_id = 23
+    time_dt = datetime(2023, 8, 1, 0, 0, 0)
+    time = astropy.time.Time(time_dt)
+    n_side = 32
+
+    detector = Detector(source="rnog_mongo", select_stations=station_id)
+    site_latitude, site_longitude = detector.get_site_coordinates(station_id)
+
+    npix = healpy.nside2npix(n_side)
+    sun_map = np.zeros(npix)
+
+    time_dts = [datetime(2023, 11, 1, int(h), 0, 0) for h in np.arange(24)]
+    for time_dt in time_dts:
+        time = astropy.time.Time(time_dt)
+        sun_zenith, sun_azi = get_local_sun_coordinates(detector.get_site_coordinates(), time)
+        sun_pos_pixi = healpy.pixelfunc.ang2pix(n_side, sun_zenith, sun_azi)
+        sun_map[sun_pos_pixi] += 100
+
+
+    healpy.orthview(sun_map, half_sky=True)
+    plt.show()
+    plt.close()
+
     sun_dic = read_quiet_sun_json(json_path)
     print(sun_dic["temperature"])
 
@@ -453,7 +492,6 @@ if __name__ == "__main__":
                                             bounds_error=False,
                                             fill_value="extrapolate")
 
-    n_side = 4 
     freq_range = np.array([10, 1000]) * units.MHz
 
     # define interpolation frequencies. Set in logarithmic range from freq_range[0] to freq_range[1],
@@ -473,8 +511,8 @@ if __name__ == "__main__":
     print(interpolation_frequencies[freq_idx])
     healpy.mollview(noise_temperatures[freq_idx], sub=121)
 
-    theta_sun = 60 * units.degree
-    phi_sun = 90 * units.degree
+    theta_sun = 0
+    phi_sun = 30
     dtheta_sun = 2544 * 60 * 60 * units.degree
     ipix = healpy.ang2pix(n_side, theta_sun, phi_sun)
 
