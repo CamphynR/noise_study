@@ -8,6 +8,7 @@ from scipy import interpolate
 
 from NuRadioReco.modules.io.RNO_G.readRNOGDataMattak import readRNOGData
 from NuRadioReco.utilities import units
+from NuRadioReco.utilities.fft import time2freq
 
 def open_response_file(response_path):
     with open(response_path, "r") as response_file:
@@ -20,29 +21,40 @@ def open_response_file(response_path):
             continue
         else:
             channel_times_key = f"{key}_times"
-            print(channel_times_key)
             cur_times = np.array(times) - times[np.argmax(np.abs(response_dic[key]))]
             ch_response = response_dic[key]
             response_interpol = interpolate.interp1d(cur_times, ch_response,
                                                      kind="linear", bounds_error=False, fill_value=0)
             response_dic[channel_times_key] = cur_times
             response_dic[key] = response_interpol
-
     return response_dic
+
+
+def convert_response_to_spectrum(response_dic, response_channel_key, window = [-10, 30]):
+    times = response_dic[f"{response_channel_key}_times"]
+    response = response_dic[response_channel_key]
+    response = response(times)
+    selection = np.logical_not(np.logical_and(window[0] < times, times < window[1]))
+    response[selection] = 0
+    sampling_rate = 1./np.diff(times[:2])[0]
+    frequencies = np.fft.rfftfreq(len(times), d=1./sampling_rate)
+    spectrum = time2freq(response, sampling_rate)
+    spectrum_interpol = interpolate.interp1d(frequencies, spectrum,
+                                             bounds_error=False, fill_value=0+0j)
+    return frequencies, spectrum_interpol
 
 
 
 class systemResonseTimeDomainIncorporator():
     def __init__(self):
-        # mapping to map channels to the keys in the json file
-        self.channel_mapping = {"ch2" : [0, 1, 2, 3],
-                                "ch11_6dB" : [4, 8, 11, 21],
-                                "ch9_6dB" : [9, 10, 22, 23]}
-        self.channel_mapping = {key: group for group, keys in self.channel_mapping.items() for key in keys}
         return
 
 
-    def begin(self, response_path):
+    def begin(self, response_path, response_channel_key=None):
+        if response_channel_key is None:
+            self.response_channel_key = "ch2_6dB"
+        else:
+            self.response_channel_key=response_channel_key
         self.response = open_response_file(response_path)
 
 
@@ -51,39 +63,34 @@ class systemResonseTimeDomainIncorporator():
             sampling_rate = channel.get_sampling_rate()
             trace_with_response = self.apply_response(channel, self.response)
             channel.set_trace(trace_with_response, sampling_rate)
+            # spectrum_with_response = self.apply_response(channel, self.response_spectrum)
+            # channel.set_frequency_spectrum(spectrum_with_response, sampling_rate)
 
 
-    def apply_response(self, channel, response_dic):
-        channel_id = channel.get_id()
-        if channel_id in self.channel_mapping.keys():
-            response_key = self.channel_mapping[channel_id]
-        else:
-            response_key = "ch2"
-
+    def apply_response(self, channel, response_dic, window=[-10, 30]):
+        times = response_dic[f"{self.response_channel_key}_times"]
+        response = response_dic[self.response_channel_key]
         sampling_rate = channel.get_sampling_rate()
-
-        times = response_dic[f"{response_key}_times"]
-        response = response_dic[response_key]
         sample_times = np.arange(min(times), max(times), 1./sampling_rate)
         response_sampled = response(sample_times)
-
         trace_with_response = np.convolve(channel.get_trace(), response_sampled, mode="same") 
+
+        selection = np.logical_and(window[0] < times, times < window[1])
+        response_window = np.zeros_like(times)
+        response_window[selection] = response(times[selection])
 
         sample_diff = len(trace_with_response) - len(channel.get_trace())
         trace_with_response = trace_with_response[int(sample_diff/2):int(len(trace_with_response) - sample_diff/2)]
-        print(len(trace_with_response))
         assert len(trace_with_response) == len(channel.get_trace())
         return trace_with_response
 
     
-    def get_response(self, channel_id):
-        if channel_id in self.channel_mapping.keys():
-            response_key = self.channel_mapping[channel_id]
-        else:
-            response_key = "ch2"
+    def get_response(self, response_channel_key=None):
+        if response_channel_key is None:
+            response_channel_key = self.response_channel_key
         
-        times = self.response[f"{response_key}_times"]
-        response = self.response[response_key]
+        times = self.response[f"{response_channel_key}_times"]
+        response = self.response[response_channel_key]
 
         return times, response 
 
