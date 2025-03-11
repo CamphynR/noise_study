@@ -84,12 +84,12 @@ def create_thermal_noise_events(nr_events, station_id, detector,
     generic_noise_adder = channelGenericNoiseAdder()
     generic_noise_adder.begin()
 
-    # galactic_noise_adder = channelGalacticNoiseAdder()
-    # galactic_noise_adder.begin(freq_range=[min_freq, max_freq],
-    #                            caching=True)
-    galactic_noise_adder = channelGalacticSunNoiseAdder()
+    galactic_noise_adder = channelGalacticNoiseAdder()
     galactic_noise_adder.begin(freq_range=[min_freq, max_freq],
-                              caching=True)
+                               caching=True)
+    # galactic_noise_adder = channelGalacticSunNoiseAdder()
+    # galactic_noise_adder.begin(freq_range=[min_freq, max_freq],
+    #                           caching=True)
 
     hardware_response = hardwareResponseIncorporator()
     hardware_response.begin()
@@ -100,18 +100,14 @@ def create_thermal_noise_events(nr_events, station_id, detector,
 
     events = []
     for _ in range(nr_events):
-        print(_)
         nr_event_types = len(noise_sources)
         if include_sum:
             nr_event_types += 1
         event_types = [create_sim_event(station_id, channel_ids, detector,
                                         frequencies, sampling_rate) 
                        for event_type in range(nr_event_types)]
-        print(len(event_types))
-        print(event_types[0])
         
         for i, noise_source in enumerate(noise_sources):
-            print(i)
             station = event_types[i].get_station()
             if noise_source == "ice":
                 thermal_noise_adder.run(event_types[i], station, detector, passband= [min_freq, max_freq])
@@ -137,7 +133,6 @@ def create_thermal_noise_events(nr_events, station_id, detector,
         if include_det_signal_chain:
             for event in event_types:
                 station = event.get_station()
-                print("including the detector response")
 #                hardware_response.run(event, station, det=detector, sim_to_data=True)
                 system_response.run(event, station, detector)
         events.append(event_types)
@@ -150,7 +145,7 @@ def create_thermal_noise_events(nr_events, station_id, detector,
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--station", default=23, type=int)
+    parser.add_argument("--station", "-s", default=23, type=int)
     parser.add_argument("--config", default="sim/thermal_noise/config_efields.json")
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
@@ -159,23 +154,26 @@ if __name__ == "__main__":
 
     save_dir = f"{config['save_dir']}/simulations/thermal_noise_traces" 
     date = datetime.datetime.now().strftime("%Y_%m_%d_%H")
-    save_dir +=f"/job_{date}_sun"
+    save_dir +=f"/job_{date}"
     if args.debug:
         save_dir += "_test"
+    # save to stdout to use as path in pipeline
+    print(save_dir)
     create_nested_dir(save_dir)
     settings_dict = {**config, **vars(args)}
     config_file = f"{save_dir}/config_efields.json"
     if os.path.exists(config_file):
-        print("overwriting config file")
+        logging.warning("overwriting config file")
         os.remove(config_file)
     with open(config_file, "w") as f:
         json.dump(settings_dict, f)
     
     if args.debug:
-        logging.getLogger().setLevel(logging.DEBUG)
+        log_level = logging.DEBUG
     else:
-        logging.getLogger().setLevel(logging.ERROR)
-    print(save_dir)
+        log_level = logging.CRITICAL
+    
+    logging.getLogger().setLevel(log_level)
 
     station_id = args.station
     channels_to_include = config["channels_to_include"]
@@ -186,12 +184,12 @@ if __name__ == "__main__":
     antenna_models = {"VPol" : "RNOG_vpol_v3_5inch_center_n1.74",
                       "HPol" : "RNOG_hpol_v4_8inch_center_n1.74"}
 
-    print("querying detector")
-    detector = ModDetector(database_connection='RNOG_public', log_level=logging.NOTSET,
+    logging.debug("querying detector")
+    detector = ModDetector(database_connection='RNOG_public', log_level=log_level,
                            select_stations=station_id)
     detector_time = datetime.datetime(2022, 8, 1)
     detector.update(detector_time)
-    print("done querying detector")
+    logging.debug("done querying detector")
 
     for channel_id in channels_to_include:
         if channel_id in channel_types["VPol"]:
@@ -203,8 +201,6 @@ if __name__ == "__main__":
             detector.modify_channel_description(station_id, channel_id, ["signal_chain","VEL"], antenna_model)
 
 
-    print(detector.get_antenna_model(23, 0))
-    print(detector.get_antenna_model(23, 4))
 
     noise_sources = config["noise_sources"]
     include_sum = config["include_sum"]
@@ -222,7 +218,6 @@ if __name__ == "__main__":
                                              passband=[10 * units.MHz, 1600 * units.MHz]
                                              )
 
-        print(events.shape)
         batch_dir = f"station{args.station}" + "/" + f"run{batch}"
         os.makedirs(save_dir + "/" + batch_dir, exist_ok=True)
 
@@ -230,7 +225,6 @@ if __name__ == "__main__":
         if include_sum:
             filename = f"events_batch{batch}"
             filenames.append(filename)
-        print(filenames)
 
         for i, filename in enumerate(filenames):
             savename = save_dir + "/" + batch_dir + "/" + filename
@@ -243,8 +237,8 @@ if __name__ == "__main__":
             return events
 
     if not args.debug:
-        nr_batches = 10
-        events_per_batch = 300
+        nr_batches = 5
+        events_per_batch = 100
         with multiprocessing.Pool() as p:
             p.map(events_process, range(nr_batches))
 
