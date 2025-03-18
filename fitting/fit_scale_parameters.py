@@ -78,6 +78,7 @@ if __name__ == "__main__":
         sigmas, covs = produce_rayleigh_params(bin_centers, spec_amplitude_histograms[ch], rayleigh)
         sigmas_list.append(sigmas)
         covs_list.append(covs)
+        break
 
     spec_hist_dict["scale_parameters"] = sigmas_list
     spec_hist_dict["scale_parameters_cov"] = covs_list
@@ -116,11 +117,12 @@ if __name__ == "__main__":
         pdf.close()
 
         channel_idx = 0
-        test_idx = 250
-        histograms = spec_amplitude_histograms[channel_idx][test_idx]
-        fig, ax = plt.subplots(figsize = (12, 8))
-        ax.stairs(histograms, edges=bin_edges)
-        ax.plot(bin_centers, rayleigh(bin_centers, sigmas_list[channel_idx][test_idx]))
-        ax.set_title(f"freq = {frequencies[test_idx]}")
-        ax.text(0.6, 5, f"scale param = {sigmas_list[channel_idx][test_idx]}")
+        test_indices = [100, 200, 300, 400, 500]
+        fig, axs = plt.subplots(len(test_indices), 1, figsize = (12, 8))
+        for i,test_idx in enumerate(test_indices):
+            histograms = spec_amplitude_histograms[channel_idx][test_idx]
+            axs[i].stairs(histograms, edges=bin_edges)
+            # ax.plot(bin_centers, rayleigh(bin_centers, sigmas_list[channel_idx][test_idx]))
+            axs[i].set_title(f"freq = {frequencies[test_idx]}")
+            # ax.text(0.6, 5, f"scale param = {sigmas_list[channel_idx][test_idx]}")
         fig.savefig("test")
