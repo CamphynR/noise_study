@@ -4,9 +4,25 @@ import pickle
 import numpy as np
 import os
 from scipy import constants
+from NuRadioReco.framework.event import Event
+from NuRadioReco.framework.station import Station
+from NuRadioReco.framework.channel import Channel
 import NuRadioMC.utilities.medium as medium
 import NuRadioReco.modules.channelBandPassFilter
 from NuRadioReco.utilities import units
+
+# simulation functions
+
+def create_sim_event(station_id, channel_id, detector, frequencies, sampling_rate):
+    event = Event(run_number=-1, event_id=-1)
+    station = Station(station_id)
+    station.set_station_time(detector.get_detector_time())
+    channel = Channel(channel_id)
+    channel.set_frequency_spectrum(np.zeros_like(frequencies, dtype=np.complex128), sampling_rate)
+    station.add_channel(channel)
+    event.set_station(station)
+    return event, station
+
 
 # Coding helper functions
 
