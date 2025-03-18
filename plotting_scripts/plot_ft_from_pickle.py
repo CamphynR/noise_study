@@ -21,5 +21,6 @@ if __name__ == '__main__':
     frequency, frequency_spectrum, var_frequency_spectrum = read_average_freq_spectrum_from_pickle(args.pickle)
     
     channel_id = 0
+    plt.style.use("gaudi")
     plt.plot(frequency, frequency_spectrum[channel_id])
     plt.show()
