@@ -39,12 +39,13 @@ if __name__ == "__main__":
     detector = ModDetector(database_connection='RNOG_public', select_stations=station_id)
     detector_time = datetime.datetime(2022, 8, 1)
     detector.update(detector_time)
+    print(detector.get_site_coordinates())
 
     for channel_id in [0, 1, 2, 3]:
         antenna_model = "RNOG_vpol_v3_5inch_center_n1.74"
         detector.modify_channel_description(station_id, channel_id, ["signal_chain","VEL"], antenna_model)
         print("model getter yields: " + detector.get_antenna_model(station_id, channel_id))
-        ch_info = detector.get_channel(23, channel_id)
+        ch_info = detector.get_channel(args.station, channel_id)
         print("channel info yields: " + ch_info["signal_chain"]["VEL"])
 
 
