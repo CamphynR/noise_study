@@ -78,8 +78,6 @@ def create_nested_dir(directory):
 
 
 
-
-
 def read_broken_runs(path):
     with open(path, "rb") as file:
         broken_runs = pickle.load(file)
