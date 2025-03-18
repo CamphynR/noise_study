@@ -146,6 +146,7 @@ if __name__ == "__main__":
             rnog_reader.end()
             del rnog_reader
         except FileNotFoundError:
+            rnog_reader = 0
             continue
 
 
