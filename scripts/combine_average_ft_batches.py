@@ -26,13 +26,13 @@ def combine_vars(var1, var2, mean1, mean2, nr_events_1, nr_events_2):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--pickles")
+    parser.add_argument("--pickles", nargs="+")
     args = parser.parse_args()
     
     frequencies_prev, frequency_spectrum_prev, var_frequency_spectrum_prev, nr_events_prev = read_freq_spec_file(args.pickles[0])
     for i, pickle in enumerate(args.pickles[1:]):
         frequencies, frequency_spectrum, var_frequency_spectrum, nr_events = read_freq_spec_file(pickle)
-        assert np.equal(frequencies, frequencies_prev), f"frequencies of {i}'th file are not equal to {i}-1th frequencies"
+        assert np.equal(frequencies.all(), frequencies_prev.all()), f"frequencies of {i}'th file are not equal to {i}-1th frequencies"
         var_frequency_spectrum = combine_vars(var_frequency_spectrum_prev, var_frequency_spectrum,
                                               frequency_spectrum_prev, frequency_spectrum,
                                               nr_events_prev, nr_events)
