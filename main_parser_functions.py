@@ -188,9 +188,14 @@ def populate_spec_amplitude_histogram(reader, detector, config, args, logger, di
     clean_data = not args.skip_clean
     clean = "raw" if args.skip_clean else "clean"
 
-    times = [time["readoutTime"] for time in reader.reader.get_events_information("readoutTime").values()]
-    begin_time = np.min(times)
-    end_time = np.max(times)
+    try:
+        times = [time["readoutTime"] for time in reader.reader.get_events_information("readoutTime").values()]
+        begin_time = np.min(times)
+        end_time = np.max(times)
+    except AttributeError:
+        #sims
+        begin_time = -1
+        end_time = -1
     
     if args.nr_batches is None:
         # very bruteforce way to get an idea of spectrum scale
@@ -262,7 +267,10 @@ def populate_spec_amplitude_histogram(reader, detector, config, args, logger, di
                 raise OSError
 
 
-    event_info = reader.reader.get_events_information(["run", "eventNumber"])
+    try:
+        event_info = reader.reader.get_events_information(["run", "eventNumber"])
+    except AttributeError:
+        event_info = 0
     header = {"nr_events" : nr_events,
               "hist_range" : hist_range,
               "bin_centres" : bin_centres,
