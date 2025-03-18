@@ -19,3 +19,5 @@ trace_mem.txt
 *.h5
 debug.txt
 *.sh
+RNO-G_noise_study.code-workspace
+testing
