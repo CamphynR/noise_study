@@ -55,7 +55,7 @@ def get_traces_from_event(event):
 def create_thermal_noise_events(nr_events, station_id, detector,
                                 choose_channels=None,
                                 include_det_signal_chain=True,
-                                noise_sources=["ice", "electronic", "galactic"],
+                                noise_sources=["ice", "electronic", "galactic", "galactic_min", "galactic_max"],
                                 include_sum = True,
                                 electronic_temperature=80*units.kelvin,
                                 passband = None):
@@ -115,6 +115,12 @@ def create_thermal_noise_events(nr_events, station_id, detector,
                 generic_noise_adder.run(event_types[i], station, detector, amplitude=amplitude, min_freq=min_freq, max_freq=max_freq, type="rayleigh")
             elif noise_source == "galactic":
                 galactic_noise_adder.run(event_types[i], station, detector)
+            elif noise_source == "galactic_min":
+                time = datetime.datetime(2023, 8, 13, 11)
+                galactic_noise_adder.run(event_types[i], station, detector, manual_time=time)
+            elif noise_source == "galactic_max":
+                time = datetime.datetime(2023, 8, 13, 23)
+                galactic_noise_adder.run(event_types[i], station, detector, manual_time=time)
 
         if include_sum:
             traces_sum = np.zeros((len(channel_ids), nr_samples))
