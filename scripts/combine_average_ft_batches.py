@@ -15,7 +15,7 @@ def read_freq_spec_file(path):
 
 def combine_mean(mean1, mean2, nr_events_1, nr_events_2):
     weighted_sum = mean1 * nr_events_1 + mean2 * nr_events_2
-    return weighted_sum + (nr_events_1 + nr_events_2)
+    return weighted_sum / (nr_events_1 + nr_events_2)
 
 
 def combine_vars(var1, var2, mean1, mean2, nr_events_1, nr_events_2):
@@ -36,12 +36,13 @@ if __name__ == "__main__":
         var_frequency_spectrum = combine_vars(var_frequency_spectrum_prev, var_frequency_spectrum,
                                               frequency_spectrum_prev, frequency_spectrum,
                                               nr_events_prev, nr_events)
-        frequency_spectrum = combined_freq_spectrum = combine_mean(frequency_spectrum_prev, frequency_spectrum,
+        combined_freq_spectrum = combine_mean(frequency_spectrum_prev, frequency_spectrum,
                                               nr_events_prev, nr_events)
+        frequency_spectrum_prev = frequency_spectrum
         nr_events_prev += nr_events 
 
     result_dictionary = read_pickle(args.pickles[0])
-    result_dictionary["frequency_spectrum"] = frequency_spectrum
+    result_dictionary["frequency_spectrum"] = combined_freq_spectrum
     result_dictionary["var_frequency_spectrum"] = var_frequency_spectrum
     result_dictionary["header"]["nr_events"] = nr_events
 
