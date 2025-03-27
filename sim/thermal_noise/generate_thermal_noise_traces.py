@@ -27,7 +27,6 @@ from utilities.utility_functions import read_pickle, write_pickle, read_config, 
 from temp_to_noise import temp_to_volt
 
 
-np.random.seed(2025)
 
 
 def create_sim_event(station_id, channel_ids, detector, frequencies, sampling_rate):
