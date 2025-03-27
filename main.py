@@ -40,7 +40,7 @@ from NuRadioReco.framework.base_trace import BaseTrace
 from NuRadioReco.modules.RNO_G.hardwareResponseIncorporator import hardwareResponseIncorporator
 
 import modules.cwFilter
-from main_parser_functions import parse_data, calculate_average_fft, populate_spec_amplitude_histogram
+from main_parser_functions import parse_data, functions
 
 logging.basicConfig(level = logging.WARNING)
 
@@ -174,8 +174,6 @@ if __name__ == "__main__":
     logging.basicConfig(level = log_level)
 
 
-    functions = dict(average_ft = calculate_average_fft,
-                     spec_hist = populate_spec_amplitude_histogram)
     calculate_variable = functions[config["variable"]]
 
     logger.debug("Initialising detector")
@@ -233,7 +231,8 @@ if __name__ == "__main__":
 
 
     if args.test:
-        root_dirs = root_dirs[0:5]
+        root_dirs = root_dirs[300:305]
+        print(root_dirs)
 
     selectors = [lambda event_info : event_info.triggerType == "FORCE"]
 
@@ -246,7 +245,7 @@ if __name__ == "__main__":
 
     if np.any([run_file.endswith(".root") for run_file in run_files]):
         calibration = config["calibration"][str(args.station)]
-        mattak_kw = dict(backend="pyroot", read_daq_status=False, read_run_info=False)
+        mattak_kw = config["mattak_kw"]
         # note if no runtable provided, runtable is queried from the database
         rnog_reader = dataProviderRNOG()
         rnog_reader.begin(root_dirs,

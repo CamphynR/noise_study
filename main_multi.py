@@ -40,7 +40,7 @@ from NuRadioReco.utilities import units
 #from NuRadioReco.modules.io.RNO_G.readRNOGDataMattak import readRNOGData
 
 import modules.cwFilter
-from main_parser_functions import parse_data, calculate_average_fft, populate_spec_amplitude_histogram
+from main_parser_functions import parse_data, functions
 
 logging.basicConfig(level = logging.WARNING)
 
@@ -129,8 +129,6 @@ if __name__ == "__main__":
 
 
 
-    functions = dict(average_ft = calculate_average_fft,
-                     spec_hist = populate_spec_amplitude_histogram)
     calculate_variable = functions[config["variable"]]
 
 
@@ -168,9 +166,9 @@ if __name__ == "__main__":
         run_files = glob.glob(f"{data_dir}/station{args.station}/run**/*", recursive=True)
         if np.any([run_file.endswith(".root") for run_file in run_files]):
             root_dirs = [root_dir for root_dir in root_dirs if not int(os.path.basename(root_dir).split("run")[-1]) in broken_runs_list]
-            root_dirs = sorted(root_dirs)
+            root_dirs = sorted(root_dirs, key=lambda root_dir : int(os.path.basename(root_dir)[3:]))
             if args.test:
-                root_dirs = root_dirs[:40]
+                root_dirs = root_dirs[:1]
             if args.nr_batches is not None:
                 root_dirs = np.array(root_dirs)
                 root_dirs = np.array_split(root_dirs, args.nr_batches)
@@ -205,7 +203,7 @@ if __name__ == "__main__":
         run_time_range = config["run_time_range"]
 
     calibration = config["calibration"][str(args.station)]
-    mattak_kw = dict(backend="pyroot", read_daq_status=False, read_run_info=False)
+    mattak_kw = config["mattak_kw"]
 
     def batch_process(batch_i):
         root_dirs_batch = root_dirs[batch_i]

@@ -7,6 +7,7 @@ import pickle
 import subprocess
 
 import NuRadioReco
+from NuRadioReco.modules.io.eventWriter import eventWriter
 import modules
 
 from utilities.utility_functions import create_nested_dir
@@ -244,27 +245,27 @@ def populate_spec_amplitude_histogram(reader, detector, config, args, logger, di
             bin_indices = np.searchsorted(bin_edges[1:-1], spectrum)
             spec_amplitude_histograms[channel_id, np.arange(len(frequencies)), bin_indices] += 1
 
-            if args.test and nr_events == 1:
-                test_idx = 250
-                plt.plot(frequencies, spectrum)
-                plt.hlines(bin_edges, 0, 1.2*np.max(frequencies), colors="r", linewidth=1.)
-                plt.scatter(frequencies[test_idx], spectrum[test_idx], color="red", zorder=5)
-                x_text = [1.75 for i in range(len(bin_centres))]
-                y_text = [bin_c for bin_c in bin_centres]
-                text = [f"bin {i}" for i in range(len(bin_centres))]
-                for i in range(len(text)):
-                    plt.text(x_text[i], y_text[i], text[i], fontsize="xx-small",
-                             verticalalignment="center",
-                             horizontalalignment="center")
-                plt.ylim(0.2, 0.4)
-                plt.xlabel("freq / GHz")
-                plt.ylabel("spec amp / V/GHz")
-                plt.savefig("test_main")
-                plt.close()
-                logger.debug(f"test at frequency: {frequencies[test_idx]}")
-                logger.debug(f"test binned in bin {bin_indices[test_idx]}, located at {bin_centres[bin_indices[test_idx]]}")
+            # if args.test and nr_events == 1:
+            #     test_idx = 250
+            #     plt.plot(frequencies, spectrum)
+            #     plt.hlines(bin_edges, 0, 1.2*np.max(frequencies), colors="r", linewidth=1.)
+            #     plt.scatter(frequencies[test_idx], spectrum[test_idx], color="red", zorder=5)
+            #     x_text = [1.75 for i in range(len(bin_centres))]
+            #     y_text = [bin_c for bin_c in bin_centres]
+            #     text = [f"bin {i}" for i in range(len(bin_centres))]
+            #     for i in range(len(text)):
+            #         plt.text(x_text[i], y_text[i], text[i], fontsize="xx-small",
+            #                  verticalalignment="center",
+            #                  horizontalalignment="center")
+            #     plt.ylim(0.2, 0.4)
+            #     plt.xlabel("freq / GHz")
+            #     plt.ylabel("spec amp / V/GHz")
+            #     plt.savefig("test_main")
+            #     plt.close()
+            #     logger.debug(f"test at frequency: {frequencies[test_idx]}")
+            #     logger.debug(f"test binned in bin {bin_indices[test_idx]}, located at {bin_centres[bin_indices[test_idx]]}")
 
-                raise OSError
+            #     raise OSError
 
 
     try:
@@ -291,3 +292,90 @@ def populate_spec_amplitude_histogram(reader, detector, config, args, logger, di
             pickle.dump(result_dict, f)
 
     return result_dict    
+
+
+
+def collect_traces(reader, detector, config, args, logger, directory, cleaning_modules, max_nr_events=1000):
+    station_id = args.station
+    station_info = detector.get_station(station_id)
+    nr_channels = len(station_info["channels"])
+    nr_samples = station_info["number_of_samples"]
+
+    clean_data = not args.skip_clean
+    clean = "raw" if args.skip_clean else "clean"
+
+    traces = []
+    nr_events = 0
+    for event in reader.run():
+        nr_events += 1
+        print(nr_events)
+        station = event.get_station(args.station)
+        
+        if clean_data:
+            for cleaning_key in cleaning_modules.keys():
+                cleaning_modules[cleaning_key].run(event, station, detector,
+                                                   **config["cleaning"][cleaning_key]["run_kwargs"])
+        trace_ch = []
+        for channel in station.iter_channels():
+            channel_id = channel.get_id()
+            trace = channel.get_trace()
+            trace_ch.append(trace)
+        traces.append(trace_ch)
+        if nr_events == max_nr_events:
+            break
+    
+    traces = np.array(traces)
+
+    
+    header = {"nr_events" : nr_events}
+    result_dict = {"header" : header,
+                   "time" : station.get_station_time(),
+                   "traces" : traces}
+
+    if config["save"]:
+        filename = f"{directory}/station{station_id}/{clean}/traces"
+        if args.batch_i is not None:
+            filename += f"_batch{args.batch_i}"
+        filename += ".pickle"
+        with open(filename, "wb") as f:
+            pickle.dump(result_dict, f)
+
+
+def collect_spectra(reader, detector, config, args, logger, directory, cleaning_modules):
+    station_id = args.station
+    station_info = detector.get_station(station_id)
+    nr_channels = len(station_info["channels"])
+    nr_samples = station_info["number_of_samples"]
+
+    clean_data = not args.skip_clean
+    clean = "raw" if args.skip_clean else "clean"
+
+
+    if config["save"]:
+        filename = f"{directory}/station{station_id}/{clean}/spectra"
+        if args.batch_i is not None:
+            filename += f"_batch{args.batch_i}"
+        filename += ".nur"
+        event_writer = eventWriter()
+        event_writer.begin(filename)
+
+    for event in reader.run():
+        station = event.get_station(args.station)
+        
+        if clean_data:
+            for cleaning_key in cleaning_modules.keys():
+                cleaning_modules[cleaning_key].run(event, station, detector,
+                                                   **config["cleaning"][cleaning_key]["run_kwargs"])
+        for channel in station.iter_channels():
+            # forces NuRadio to store spectra instead of traces
+            spectrum = channel.get_frequency_spectrum()
+        event_writer.run(event, detector, mode={"Channels": True})
+    event_writer.end()
+    return
+
+
+
+functions = dict(average_ft = calculate_average_fft,
+                 spec_hist = populate_spec_amplitude_histogram,
+                 traces = collect_traces,
+                 spectra = collect_spectra)
