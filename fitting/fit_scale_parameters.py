@@ -40,6 +40,7 @@ def produce_rayleigh_params(bin_centers, histograms, rayleigh_function, sigma_gu
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_path")
+    parser.add_argument("--comparison_paths", default=None, help="Other spectral histograms to compare distributions, optional", nargs="+")
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
 
@@ -106,7 +107,7 @@ if __name__ == "__main__":
             covs = covs_list[i]
 
             fig, ax = plt.subplots()
-            ax.errorbar(frequencies, sigmas, yerr = covs, label = "data")
+            ax.errorbar(frequencies[selection], sigmas, yerr = covs, label = "data")
             ax.legend(loc = "best")
             ax.set_title(f"Station{station_id}, channel {i}")
             ax.set_xlabel("freq / GHz")
@@ -120,11 +121,29 @@ if __name__ == "__main__":
 
         channel_idx = 0
         test_indices = [100, 200, 300, 400, 500]
-        fig, axs = plt.subplots(len(test_indices), 1, figsize = (12, 8))
+        fig, axs = plt.subplots(len(test_indices), 1, figsize = (12, 16))
         for i,test_idx in enumerate(test_indices):
+            if args.comparison_paths is not None:
+                for j, comparison in enumerate(args.comparison_paths):
+                    spec_hist_dict_comp = read_pickle(comparison)
+                    labels = ["linear vc, cw filter", "linear vc, no cw filter"]
+                    # label = comparison.split("/")[-4]
+                    label = labels[j]
+                    freq_comp = spec_hist_dict["freq"]
+                    spec_amplitude_histograms_comp = spec_hist_dict_comp["spec_amplitude_histograms"]
+                    # convert hists to pdf
+                    normalization_factor = np.sum(spec_amplitude_histograms_comp, axis = -1) * np.diff(bin_edges)[0]
+                    spec_amplitude_histograms_comp = np.divide(spec_amplitude_histograms_comp, normalization_factor[:, :, np.newaxis])
+                    histograms_comp = spec_amplitude_histograms_comp[channel_idx][test_idx]
+                    axs[i].stairs(histograms_comp, edges=bin_edges, label=label, ls="dashed", zorder=3)
+
+            label = "full vc and cw filter"
             histograms = spec_amplitude_histograms[channel_idx][test_idx]
-            axs[i].stairs(histograms, edges=bin_edges)
-            # ax.plot(bin_centers, rayleigh(bin_centers, sigmas_list[channel_idx][test_idx]))
+            axs[i].stairs(histograms, edges=bin_edges, label=label)
+            axs[i].plot(bin_centers, rayleigh(bin_centers, sigmas_list[channel_idx][test_idx]), label=f"fit on {label}")
             axs[i].set_title(f"freq = {frequencies[test_idx]}")
             # ax.text(0.6, 5, f"scale param = {sigmas_list[channel_idx][test_idx]}")
+            # axs[i].set_yscale("log")
+            axs[i].legend()
         fig.savefig("test")
+        print(spec_hist_dict["header"]["nr_events"])
