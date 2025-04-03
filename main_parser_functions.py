@@ -54,7 +54,7 @@ def parse_data(reader, detector, config, args, logger,
         json.dump(settings_dict, f, cls=NpEncoder)
 
     if config["save"]:
-        src_dir = "/tmp/data/"
+        src_dir = "/home/rcamphyn/tmp/data/"
         dest_dir = config["save_dir"]
 
         # capture to stdout to use in pipeline 
@@ -62,8 +62,7 @@ def parse_data(reader, detector, config, args, logger,
         job_dir = job_dir[3:]
         job_dir = "/".join(job_dir)
         job_dir = dest_dir + "/" + job_dir
-        print(job_dir)
-        subprocess.call(["rsync", "-vuar", src_dir, dest_dir], stdout=subprocess.DEVNULL)
+        subprocess.call(["rsync", "-vuar", "--delete", src_dir, dest_dir], stdout=subprocess.DEVNULL)
 
     return calculated_output
 
@@ -76,7 +75,7 @@ def construct_folder_hierarchy(config, args, folder_appendix=None):
     # assumes function name to be calculate_*
     function_name = config["variable"]
     # first save to /tmp directory native to computer node and afterwards copy to pnfs
-    save_dir = "/tmp/data"
+    save_dir = "/home/rcamphyn/tmp/data"
     if "simulation" in config.keys():
         if config["simulation"] == True:
             save_dir += "/simulations"
@@ -100,7 +99,7 @@ def construct_folder_hierarchy(config, args, folder_appendix=None):
     clean = "raw" if args.skip_clean else "clean"
     station_dir = f"{directory}/station{args.station}/{clean}"
     if not os.path.exists(station_dir):
-        os.makedirs(station_dir)
+        os.makedirs(station_dir, exist_ok=True)
 
 
     return directory
@@ -342,6 +341,9 @@ def collect_traces(reader, detector, config, args, logger, directory, cleaning_m
 
 
 def collect_spectra(reader, detector, config, args, logger, directory, cleaning_modules):
+    """
+    Purely for use on DATA files!
+    """
     station_id = args.station
     station_info = detector.get_station(station_id)
     nr_channels = len(station_info["channels"])
@@ -350,6 +352,7 @@ def collect_spectra(reader, detector, config, args, logger, directory, cleaning_
     clean_data = not args.skip_clean
     clean = "raw" if args.skip_clean else "clean"
 
+    config["simulation"] = False
 
     if config["save"]:
         filename = f"{directory}/station{station_id}/{clean}/spectra"
@@ -371,7 +374,6 @@ def collect_spectra(reader, detector, config, args, logger, directory, cleaning_
             spectrum = channel.get_frequency_spectrum()
         event_writer.run(event, detector, mode={"Channels": True})
     event_writer.end()
-    return
 
 
 

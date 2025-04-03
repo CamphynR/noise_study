@@ -85,15 +85,13 @@ def read_broken_runs(path):
 
 
 
-
-
-
 def print_malloc_snapshot(max_nr_stats=10):
     snapshot = tracemalloc.take_snapshot()
     top_stats = snapshot.statistics("lineno")
     print("top 10")
     for stat in top_stats[:max_nr_stats]:
         print(stat)
+
 
 
 if __name__ == "__main__":
@@ -112,7 +110,7 @@ if __name__ == "__main__":
     
     parser.add_argument("--config", help = "path to config.json file", default = "config.json")
     parser.add_argument("--select_runs_path", help = "path to select_runs json file", default=None)
-    parser.add_argument("--filename_appendix", default = "")
+    parser.add_argument("--filename_appendix", default = "", type=str)
     
     parser.add_argument("--skip_clean", action = "store_true")
     parser.add_argument("--test", action = "store_true", help = "enables test mode, which only uses one run of data ")
@@ -144,8 +142,6 @@ if __name__ == "__main__":
     
 
 
-    broken_runs = read_broken_runs(config['broken_runs_dir'] + f"/station{args.station}.pickle")
-    broken_runs_list = [int(run) for run in broken_runs.keys()]
 
 
 
@@ -164,31 +160,50 @@ if __name__ == "__main__":
             root_dirs = glob.glob(f"{data_dir}/station{args.station}/run*")
 
         run_files = glob.glob(f"{data_dir}/station{args.station}/run**/*", recursive=True)
-        if np.any([run_file.endswith(".root") for run_file in run_files]):
+        if not len(run_files):
+            run_files = glob.glob(f"{data_dir}/station{args.station}/clean/*")
+
+        is_root = np.any([run_file.endswith(".root") for run_file in run_files])
+        is_nur = np.any([run_file.endswith(".nur") for run_file in run_files])
+        if is_root:
+            broken_runs = read_broken_runs(config['broken_runs_dir'] + f"/station{args.station}.pickle")
+            broken_runs_list = [int(run) for run in broken_runs.keys()]
             root_dirs = [root_dir for root_dir in root_dirs if not int(os.path.basename(root_dir).split("run")[-1]) in broken_runs_list]
             root_dirs = sorted(root_dirs, key=lambda root_dir : int(os.path.basename(root_dir)[3:]))
-            if args.test:
-                root_dirs = root_dirs[:1]
             if args.nr_batches is not None:
                 root_dirs = np.array(root_dirs)
                 root_dirs = np.array_split(root_dirs, args.nr_batches)
+            if args.test:
+                root_dirs = root_dirs[:3]
             channels_to_include = list(np.arange(24))
             config["channels_to_include"] = channels_to_include
-        elif np.any([run_file.endswith(".nur") for run_file in run_files]):
-            config["simulation"] = True
+            config["simulation"] = False
+        elif is_nur:
+            sim_config_path = glob.glob(f"{data_dir}/config*")[0]
             sim_config_path = glob.glob(f"{data_dir}/config*")[0]
             with open(sim_config_path, "r") as sim_config_file:
                 sim_config = json.load(sim_config_file)
-            config.update(sim_config)
-            
-            noise_sources = config["noise_sources"]
-            root_dirs_list = []
-            for noise_source in noise_sources:
-                root_dirs_tmp = [glob.glob(f"{root_dir}/events_{noise_source}_batch*")[0] for root_dir in root_dirs]
-                root_dirs_list.append(root_dirs_tmp)
-            if config["include_sum"]:
-                root_dirs_tmp = [glob.glob(f"{root_dir}/events_batch*")[0] for root_dir in root_dirs]
-                root_dirs_list.append(root_dirs_tmp)
+            config["simulation"] = sim_config.get("simulation", True)
+            if config["simulation"]:
+                config.update(sim_config)
+                noise_sources = config["noise_sources"]
+                root_dirs_list = []
+                for noise_source in noise_sources:
+                    root_dirs_tmp = [glob.glob(f"{root_dir}/events_{noise_source}_batch*")[0] for root_dir in root_dirs]
+                    root_dirs_list.append(root_dirs_tmp)
+                if config["include_sum"]:
+                    root_dirs_tmp = [glob.glob(f"{root_dir}/events_batch*")[0] for root_dir in root_dirs]
+                    root_dirs_list.append(root_dirs_tmp)
+            else:
+                if args.nr_batches is not None:
+                    root_dirs = np.array(run_files)
+                    print(root_dirs)
+                    root_dirs = np.array_split(root_dirs, args.nr_batches)
+                if args.test:
+                    root_dirs = root_dirs[:3]
+                channels_to_include = list(np.arange(24))
+                config["channels_to_include"] = channels_to_include
+                
         else:
             raise TypeError("Data extension not recognized")
 
@@ -206,6 +221,8 @@ if __name__ == "__main__":
     mattak_kw = config["mattak_kw"]
 
     def batch_process(batch_i):
+        print(root_dirs)
+        print(batch_i)
         root_dirs_batch = root_dirs[batch_i]
         print(root_dirs_batch)
         # note if no runtable provided, runtable is queried from the database
@@ -231,12 +248,32 @@ if __name__ == "__main__":
             rnog_reader.end()
             del rnog_reader
         except FileNotFoundError:
-            rnog_reader.end()
             del rnog_reader
             return
+    
+    def batch_process_nur(batch_i):
+        root_dirs_batch = root_dirs[batch_i]
+        root_dirs_batch = list(root_dirs_batch)
+        print(root_dirs_batch)
+        # note if no runtable provided, runtable is queried from the database
+        rnog_reader = eventReader()
+        rnog_reader.begin(root_dirs_batch)
+        args_temp = copy.copy(args)
+        args_temp.batch_i = batch_i
+        function = functions[config["variable"]]
+        output = parse_data(rnog_reader, det, config=config, args=args_temp, logger=logger, calculation_function=function, folder_appendix=None)
+        rnog_reader.end()
+        del rnog_reader
+        return
 
     if args.batch_i is not None:
+        print(args.batch_i)
         batch_process(args.batch_i)
     else:
-        with multiprocessing.Pool() as p:
-            p.map(batch_process, range(args.nr_batches))
+        if is_nur:
+            if config["simulation"] == False:
+                with multiprocessing.Pool() as p:
+                    p.map(batch_process_nur, range(args.nr_batches))
+        else:
+            with multiprocessing.Pool() as p:
+                p.map(batch_process, range(args.nr_batches))
