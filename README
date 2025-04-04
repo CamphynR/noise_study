@@ -27,3 +27,6 @@ When looking into noise taking the mean over many noise events will yield a trac
 
 USE OF CODE
 Do not forget to add the root directory "noise_study" to the pythonpath e.g. in an alias
+
+
+currently use ~/Documents/data/noise_study/data/average_ft/job_2025_02_21_test/station23/clean/average_ft.pickle as data file

@@ -1,0 +1,16 @@
+getenv=True
+batch_name=sim_test_ray
+
+STATION=23
+
+# with filters
+executable = /user/rcamphyn/envs/mattak_env/bin/python3
+arguments = /user/rcamphyn/noise_study/sim/thermal_noise/testing_new_ray.py --batch_nr $(Process) --station $(STATION)
+log = /user/rcamphyn/noise_study/submit/thermal_noise_$(STATION)_ray_test_$(Process).log
+output = /user/rcamphyn/noise_study/submit/thermal_noise_$(STATION)_ray_test_$(Process).out
+error = /user/rcamphyn/noise_study/submit/thermal_noise_$(STATION)_ray_test_$(Process).err
+request_cpus = 1
+request_memory = 4000MB
+request_disk = 5GB
+should_transfer_files = NO
+queue 16

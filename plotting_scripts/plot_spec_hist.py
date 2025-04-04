@@ -1,6 +1,8 @@
 import argparse
 import json
 import glob
+import os
+import pickle
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import numpy as np
@@ -17,83 +19,103 @@ def find_config(data_dir):
     job_folder = Path(data_dir).parents[1]
     return str(job_folder) + "/config.json"
 
-def read_hist_from_data_dir(data_dir):
-    hist_output_list = []
+def read_hist_from_data_dir(data_dir, nr_bins, channels):
     run_files = glob.glob(f"{data_dir}/*.pickle")
+    nr_runs = len(run_files)
+    base = open_pickle(run_files[0])
+    base = base["var"]
+    freqs = base[0][0][0]
+    sampling_rate = base[0][0][1]
+    spec_hist = np.zeros((len(channels), len(freqs), nr_bins))
     for run_file in run_files:
         hist_output = open_pickle(run_file)
         hist_output = hist_output["var"]
-        # output shape is [events, channels, 3], where 2 is freqs, bin_idxs or sampling_rate
-        hist_output_list += hist_output
-
-    freqs = [[hist_ch[0] for hist_ch in hist_eventlist] for hist_eventlist in hist_output_list]
-    freqs = np.array(freqs[0])
-
-    bin_idxs = [[hist_ch[1] for hist_ch in hist_eventlist] for hist_eventlist in hist_output_list]
-    bin_idxs = np.array(bin_idxs)
-    bin_idxs = np.moveaxis(bin_idxs, 0, 2)
-    bins = np.linspace(0, 128, 128)
-    spec_hists = np.array([[np.histogram(bin_idxs_freq, bins)[0] for bin_idxs_freq in bin_idxs_ch] for bin_idxs_ch in bin_idxs])
+        # output shape is [events, channels, 3], where 3 is freqs, bin_idxs or sampling_rate
+        for hist_output_event in hist_output:
+            for channel in range(len(channels)):
+                for freq_idx in range(len(freqs)):
+                    if hist_output_event[channel][1][freq_idx] == nr_bins:
+                        continue
+                    else:
+                        spec_hist[channel, freq_idx, hist_output_event[channel][1][freq_idx]] += 1
     # spec_hists shape is (channels, frequencies, hists)
-    
-    sampling_rate = [[hist_ch[2] for hist_ch in hist_eventlist] for hist_eventlist in hist_output_list]
-    sampling_rate = np.array(sampling_rate)
-    
-    if not np.all([freqs[i] == freqs[i - 1] for i in range(1, len(freqs))]):
-        raise ValueError("Not every run spectrogram uses the same freqs,\
-                make sure the runs contain correct traces and sampling rates")
-    elif not np.all([sampling_rate[i] == sampling_rate[i - 1] for i in range(1, len(sampling_rate))]):
-        raise ValueError("Not every run spectrogram uses the sampling rate,\
-                make sure the runs contain correct traces and sampling rates")
 
-    return freqs, spec_hists, sampling_rate
+    return freqs, spec_hist, sampling_rate, nr_runs
 
 
 def rayleigh(spec_amplitude, sigma):
-    return (spec_amplitude / sigma**2) * np.exp(-spec_amplitude**2 / (2 *sigma**2))
+    return (spec_amplitude / sigma**2) * np.exp(-spec_amplitude**2 / (2 * sigma**2))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Program to plot spec histograms")
-    parser.add_argument("--data_dir", "-dir", nargs = "+", help = "directory containing the run pickles")
+    parser.add_argument("--data_dir", "-dir", help = "directory containing the run pickles (this should be named clean or raw)")
     parser.add_argument("--channel", "-ch", type=int, nargs = "+", default=[0])
     parser.add_argument("--freq", type=float, default=400, help="frequency in MHz")
+    parser.add_argument("--force_load", action="store_true")
+    parser.add_argument("--savename")
     args = parser.parse_args()
+    station_nr = int(str(Path(args.data_dir).parents[0]).split("/")[-1][-2:])
     if args.channel is None:
         args.channel = list(range(24))
     freq = args.freq * units.MHz
 
-    config_path = find_config(args.data_dir[0])
+    clean = args.data_dir.split("/")[-1]
+
+    config_path = find_config(args.data_dir)
     with open(config_path) as config_file:
         config = json.load(config_file)
     hist_range = config["variable_function_kwargs"]["clean"]["range"]
     nr_bins = config["variable_function_kwargs"]["clean"]["nr_bins"]
-    bins = np.linspace(hist_range[0], hist_range[1], nr_bins)
-    bin_centers = bins[:-1] + np.diff(bins) / 2
+    bin_edges = np.linspace(hist_range[0], hist_range[1], nr_bins + 1)
+    bin_centers = bin_edges[:-1] + np.diff(bin_edges) / 2
 
+    if args.force_load:
+        freqs, spec_hists, sampling_rate, nr_runs = read_hist_from_data_dir(args.data_dir, nr_bins,
+                                                                            channels=args.channel)
+    else:
+        pickle_path = f"data/plotting_data/spec_hist/spec_hist_s{station_nr}_{clean}.pickle"
+        if os.path.exists(pickle_path):
+            pickle_dir = open_pickle(pickle_path)
+            freqs = pickle_dir["freqs"]
+            spec_hists = pickle_dir["spec_hists"]
+            sampling_rate = pickle_dir["sampling_rate"]
+            nr_runs = pickle_dir["nr_runs"]
+        else:
+            freqs, spec_hists, sampling_rate, nr_runs = read_hist_from_data_dir(args.data_dir, nr_bins,
+                                                                                channels=args.channel)
+            pickle_dir = {"freqs":freqs, "spec_hists":spec_hists, "sampling_rate":sampling_rate, "nr_runs":nr_runs}
+            with open(pickle_path, "wb") as pickle_file:
+                pickle.dump(pickle_dir, pickle_file)
 
-    freqs, spec_hists, sampling_rate = read_hist_from_data_dir(args.data_dir[0])
-    print(freqs[args.channel].shape)
-    freq_idx = np.digitize(freq, freqs[args.channel[0]])
+    freq_idx = np.digitize(freq, freqs)
 
     # convert hists to pdf
-    normalization_factor = np.sum(spec_hists, axis = -1) * np.diff(bins)[0]
+    normalization_factor = np.sum(spec_hists, axis = -1) * np.diff(bin_edges)[0]
     spec_hists = np.divide(spec_hists, normalization_factor[:, :, np.newaxis])
 
     # Rayleigh spectra fits
-
-
-    pdf = PdfPages("test.pdf")
+    
+    pdf_dir = "figures/spec_hist"
+    if args.savename:
+        pdf_name = pdf_dir + "/" + args.savename
+    else:
+        pdf_name = pdf_dir + f"/spec_hist_s{station_nr}_f{freq:.2f}_{clean}.pdf"
+    pdf = PdfPages(pdf_name)
     for ch in args.channel:
-        param, cov = curve_fit(rayleigh, bin_centers, spec_hists[ch, freq_idx-1])
+        param, cov = curve_fit(rayleigh, bin_centers, spec_hists[ch, freq_idx-1], p0 = [0.01])
         cov = np.sqrt(cov)[0, 0]
         ray = rayleigh(bin_centers, sigma=param[0])
         fig, ax = plt.subplots()
-        ax.stairs(spec_hists[ch, freq_idx - 1], edges = bins)
+        ax.stairs(spec_hists[ch, freq_idx - 1], edges = bin_edges)
         ax.plot(bin_centers, ray)
-        ax.text(0.4, 4, r"$\sigma=$" + f"{param[0]:.2f}" + r"$\pm$" +  f"{cov:.2f}")
+        ax.text(0.6, 0.6, r"$\sigma=$" + f"{param[0]:.4f}" + r"$\pm$" +  f"{cov:.2f}",
+                transform=ax.transAxes)
+        ax.text(0.9, 0.9, f"nr_runs: {nr_runs}",
+                va = "top", ha = "right",
+                transform=ax.transAxes)
         ax.set_xlabel("Spectrum magnitude / V/GHz", size = "large")
         ax.set_ylabel("N")
-        ax.set_title(f"Channel {ch}, freq = {freqs[ch, freq_idx - 1]} GHz")
+        ax.set_title(f"Station {station_nr}, channel {ch}, freq = {freqs[freq_idx - 1]:.2f} GHz")
         fig.savefig(pdf, format="pdf")
     pdf.close()

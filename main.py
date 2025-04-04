@@ -4,8 +4,9 @@ One can choose cleaning modules (either homemade or directly frim NuRadio) and a
 run over all available data, calculate the variable and store it in a pickle file.
 
 Whether all variables or only the mean over all events is to be stored can be chosen in the argument parser using the --only_mean flag
-"""
 
+The whole script uses NuRadio base units (freq in GHz, time in ns)
+"""
 
 import os
 import time
@@ -16,26 +17,44 @@ import pickle
 import argparse
 import datetime
 import subprocess
-import numpy as np
-from sys import getsizeof
+import tracemalloc
 from typing import Callable
+
+from NuRadioReco.modules.channelSinewaveSubtraction import channelSinewaveSubtraction
+
+import matplotlib.pyplot as plt
+import numpy as np
 from numba import jit
 from astropy.time import Time
-
 import NuRadioReco
 import NuRadioReco.modules
 import NuRadioReco.modules.RNO_G
+from NuRadioReco.modules.RNO_G.dataProviderRNOG import dataProviderRNOG
 import NuRadioReco.modules.RNO_G.hardwareResponseIncorporator
 from NuRadioReco.utilities import units
 from NuRadioReco.detector import detector
 from NuRadioReco.modules import channelBandPassFilter
-from NuRadioReco.modules.io.RNO_G.readRNOGDataMattak import readRNOGData
+from NuRadioReco.modules.io.eventReader import eventReader
+#from NuRadioReco.modules.io.RNO_G.readRNOGDataMattak import readRNOGData
 from NuRadioReco.framework.base_trace import BaseTrace
 from NuRadioReco.modules.RNO_G.hardwareResponseIncorporator import hardwareResponseIncorporator
 
 import modules.cwFilter
+from main_parser_functions import parse_data, functions
 
 logging.basicConfig(level = logging.WARNING)
+
+
+class NpEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super(NpEncoder, self).default(obj)
+
 
 def get_output_shape(function : Callable[[BaseTrace], np.ndarray]):
     """
@@ -75,18 +94,20 @@ def calculate_spec(channel):
     spec = channel.get_frequency_spectrum()
     return np.abs(spec)
 
-def calculate_spec_hist(channel, range, nr_bins):
+def calculate_spec_hist(channel, hist_range, nr_bins):
     sampling_rate = channel.get_sampling_rate()
     freqs = channel.get_frequencies()
     spec = channel.get_frequency_spectrum()
     spec = np.abs(spec)
 
-    bins = np.linspace(range[0], range[1], nr_bins)
-    bin_idxs = np.digitize(spec, bins)
+    bin_edges = np.linspace(hist_range[0], hist_range[1], nr_bins + 1)
+    # digitize takes INNER edges
+    bin_idxs = np.digitize(spec, bin_edges[1:-1])
     return freqs, bin_idxs, sampling_rate
+    
 
-def calculate_trace_hist(channel, range, nr_bins):
-    bins = np.linspace(range[0], range[1], nr_bins)
+def calculate_trace_hist(channel, hist_range, nr_bins):
+    bins = np.linspace(hist_range[0], hist_range[1], nr_bins)
     trace = channel.get_trace()
     hist, edges = np.histogram(trace, bins=bins)
     return hist, edges
@@ -96,14 +117,16 @@ def select_config(config_value : str, options : dict) -> np.ndarray:
         if config_value == option:
             return options[config]
 
-def create_nested_dir(dir):
+def create_nested_dir(directory):
     try:
-        os.makedirs(dir)
-    except:
-        if os.path.isdir(dir):
+        os.makedirs(directory)
+    except OSError:
+        if os.path.isdir(directory):
             pass
         else:
             raise SystemError("os was unable to construct data folder hierarchy")
+
+
 
 def read_broken_runs(path):
     with open(path, "rb") as file:
@@ -112,137 +135,12 @@ def read_broken_runs(path):
 
 
 
-def parse_variables(reader, detector, config, args,
-                    calculate_variable = calculate_trace,):
-    clean_data = not args.skip_clean
-    # initialise cleaning modules
-    cleaning_options = {"channelBandpassFilter" : NuRadioReco.modules.channelBandPassFilter.channelBandPassFilter,
-                        "hardwareResponseIncorporator" : NuRadioReco.modules.RNO_G.hardwareResponseIncorporator.hardwareResponseIncorporator,
-                        "cwFilter" : modules.cwFilter.cwFilter}
-    cleaning_modules = dict((cf, cleaning_options[cf]()) for cf in config["cleaning"].keys())
-
-    for cleaning_key in cleaning_modules.keys():
-        cleaning_modules[cleaning_key].begin(**config["cleaning"][cleaning_key]["begin_kwargs"])
-
-    logger.debug("Starting calculation")
-    if config["only_mean"]:
-        variables_list = initialise_variables_list(calculate_variable)
-        squares_list = initialise_variables_list(calculate_variable)
-    else:
-        variables_list = []
-    
-    clean = "raw" if args.skip_clean else "clean"
-    kwargs = config["variable_function_kwargs"][clean]
-
-    # initialise data folder
-
-    if config["save"]:
-        # assumes function name to be calculate_*
-        function_name = calculate_variable.__name__.split("_", 1)[1]
-#        save_dir = config["save_dir"]
-        # first save to /tmp directory native to computer node and afterwards copy to pnfs
-        save_dir = "/tmp"
-        # defining a savename overwrites the data structure and simply saves everything in a file,
-        # useful when running one script for multiple stations
-        if config["savename"]:
-            filename = f"{save_dir}/variable_lists/{function_name}_lists/{config['savename']}.pickle"
-        else:
-            date = datetime.datetime.now().strftime("%Y_%m_%d")
-            dir = f"{save_dir}/{function_name}/job_{date}"
-            if args.test:
-                dir += "_test"
-            create_nested_dir(dir)
-
-            # fill directory
-            config_name = f"{dir}/config.json"
-            station_ids = np.array(detector.get_station_ids())
-            for station_id in station_ids:
-                station_dir = f"{dir}/station{station_id}/{clean}"
-                if not os.path.exists(station_dir):
-                    os.makedirs(station_dir)
-
-        # copies the config used for future reference
-        settings_dict = {**config, **vars(args)}
-        if not os.path.isfile(config_name):
-            with open(config_name, "w") as f:
-                json.dump(settings_dict, f)
-
-    t0 = time.time()
-
-    events_processed = 0
-    for event in reader.run():
-        if events_processed == 0:
-            prev_run_nr = event.get_run_number()
-        events_processed += 1
-        run_nr = event.get_run_number()
-        station_id = event.get_station_ids()[0]
-        station = event.get_station(station_id)
-        logger.debug(f"Trigger is: {station.get_triggers()}")
-        logger.debug(f"Run number is {event.get_run_number()}")
-        print(f"variables_list size is {getsizeof(variables_list)/1000} kB")
-        if prev_run_nr != run_nr:
-            if config["save"]:
-                logger.debug(f"saving since {run_nr} != {prev_run_nr}")
-                filename = f"{dir}/station{station_id}/{clean}/run{prev_run_nr}"
-                filename += ".pickle"
-                print(f"Saving as {filename}")
-                with open(filename, "wb") as f:
-                    pickle.dump(dict(time=station.get_station_time(), var=variables_list), f)
-
-                if config["only_mean"]:
-                    variables_list = initialise_variables_list(calculate_variable)
-                    squares_list = initialise_variables_list(calculate_variable)
-                else:
-                    variables_list = []
-
-        # there should be a mechanism in the detector code which makes sure
-        # not to reload the detector for the same time stamps
-        station_time = station.get_station_time()
-        det.update(station_time)
-
-        if clean_data:
-            for cleaning_key in cleaning_modules.keys():
-                cleaning_modules[cleaning_key].run(event, station, detector, **config["cleaning"][cleaning_key]["run_kwargs"])
-       
-        var_channels_per_event = []
-        for channel in station.iter_channels():
-            channel_id = channel.get_id()
-            if config["only_mean"]:
-                variables_list[channel_id, :] += calculate_variable(channel, **kwargs)
-                squares_list[channel_id, :] += calculate_variable(channel, **kwargs)**2
-            else:
-                var_channels_per_event.append(calculate_variable(channel, **kwargs))
-
-        variables_list.append(var_channels_per_event)
-        
-        prev_run_nr = event.get_run_number()
-
-
-
-    if config["save"]:
-        logger.debug(f"saving since {run_nr} != {prev_run_nr}")
-        filename = f"{dir}/station{station_id}/{clean}/run{prev_run_nr}"
-        filename += ".pickle"
-        print(f"Saving as {filename}")
-        with open(filename, "wb") as f:
-            pickle.dump(dict(time=station.get_station_time(), var=variables_list), f)
-        
-        src_dir = "/tmp/"
-        dest_dir = config["save_dir"]
-        subprocess.call(["rsync", "-vuar", src_dir, dest_dir])
-        
-
-    if config["only_mean"]:
-        print(f"total events that passed filter {events_processed}")
-        variables_list = variables_list/events_processed
-        var_list = squares_list/events_processed - variables_list**2
-    
-
-    dt = time.time() - t0
-    logger.debug(f"Main calculation loop takes {dt}")
-
-    return variables_list
-
+def print_malloc_snapshot(max_nr_stats=10):
+    snapshot = tracemalloc.take_snapshot()
+    top_stats = snapshot.statistics("lineno")
+    print("top 10")
+    for stat in top_stats[:max_nr_stats]:
+        print(stat)
 
 
 if __name__ == "__main__":
@@ -252,30 +150,30 @@ if __name__ == "__main__":
                         default = None)
     parser.add_argument("-s", "--station",
                         type = int,
-                        default = 24)
+                        default = 23)
     parser.add_argument("-r", "--run",
                         default = None)
     parser.add_argument("--debug", action = "store_true")
     
     parser.add_argument("--config", help = "path to config.json file", default = "config.json")
+    parser.add_argument("--filename_appendix", default = "")
     
     parser.add_argument("--skip_clean", action = "store_true")
     parser.add_argument("--test", action = "store_true", help = "enables test mode, which only uses one run of data ")
+    parser.add_argument("--nr_batches", type=int, default=None, help="only for data, sims are fast enough")
+    parser.add_argument("--batch_i", type=int, default=None, help="Only for data, sims are fast enough")
     args = parser.parse_args()
+
 
     with open(args.config, "r") as config_json:
         config = json.load(config_json)
+
 
     logger = logging.getLogger(__name__)
     log_level = logging.DEBUG if args.debug else logging.WARNING
     logging.basicConfig(level = log_level)
 
 
-    functions = dict(rms = calculate_rms,
-                     trace = calculate_trace,
-                     spec = calculate_spec,
-                     trace_hist = calculate_trace_hist,
-                     spec_hist = calculate_spec_hist)
     calculate_variable = functions[config["variable"]]
 
     logger.debug("Initialising detector")
@@ -288,8 +186,6 @@ if __name__ == "__main__":
     logger.debug("Updating detector time")
     det.update(Time(config["detector_time"]))
     
-    # note if no runtable provided, runtable is queried from the database
-    rnog_reader = readRNOGData(log_level=log_level)
 
     broken_runs = read_broken_runs(config['broken_runs_dir'] + f"/station{args.station}.pickle")
     broken_runs_list = [int(run) for run in broken_runs.keys()]
@@ -299,14 +195,44 @@ if __name__ == "__main__":
     else:
         data_dir = args.data_dir
 
+
     if args.run is not None:
         root_dirs = glob.glob(f"{data_dir}/station{args.station}/run{args.run}/")
     else:
-        root_dirs = glob.glob(f"{data_dir}/station{args.station}/run*[!run363]") # run 363 is broken (100 waveforms with 200 event infos)
-        root_dirs = [root_dir for root_dir in root_dirs if not int(os.path.basename(root_dir).split("run")[-1]) in broken_runs_list]
+        root_dirs = glob.glob(f"{data_dir}/station{args.station}/run*")
+        run_files = glob.glob(f"{data_dir}/station{args.station}/run**/*", recursive=True)
+        if np.any([run_file.endswith(".root") for run_file in run_files]):
+            root_dirs = [root_dir for root_dir in root_dirs if not int(os.path.basename(root_dir).split("run")[-1]) in broken_runs_list]
+            root_dirs = sorted(root_dirs)
+            if args.nr_batches is not None:
+                root_dirs = np.array(root_dirs)
+                root_dirs = np.array_split(root_dirs, args.nr_batches)
+                root_dirs = root_dirs[args.batch_i]
+            channels_to_include = list(np.arange(24))
+            config["channels_to_include"] = channels_to_include
+        elif np.any([run_file.endswith(".nur") for run_file in run_files]):
+            config["simulation"] = True
+            sim_config_path = glob.glob(f"{data_dir}/config*")[0]
+            with open(sim_config_path, "r") as sim_config_file:
+                sim_config = json.load(sim_config_file)
+            config.update(sim_config)
+            
+            noise_sources = config["noise_sources"]
+            root_dirs_list = []
+            for noise_source in noise_sources:
+                root_dirs_tmp = [glob.glob(f"{root_dir}/events_{noise_source}_batch*")[0] for root_dir in root_dirs]
+                root_dirs_list.append(root_dirs_tmp)
+            if config["include_sum"]:
+                root_dirs_tmp = [glob.glob(f"{root_dir}/events_batch*")[0] for root_dir in root_dirs]
+                root_dirs_list.append(root_dirs_tmp)
+        else:
+            raise TypeError("Data extension not recognized")
+
+
 
     if args.test:
-        root_dirs = root_dirs[:3]
+        root_dirs = root_dirs[300:305]
+        print(root_dirs)
 
     selectors = [lambda event_info : event_info.triggerType == "FORCE"]
 
@@ -315,20 +241,55 @@ if __name__ == "__main__":
     else:
         run_time_range = config["run_time_range"]
 
-    calibration = config["calibration"][str(args.station)]
-
-    mattak_kw = dict(backend="pyroot", read_daq_status=False, read_run_info=False)
-    rnog_reader.begin(root_dirs,
-                      selectors=selectors,
-                      read_calibrated_data=calibration == "full",
-                      apply_baseline_correction="approximate",
-                      convert_to_voltage=calibration == "linear",
-                      select_runs=True,
-                      run_types=["physics"],
-                      run_time_range=run_time_range,
-                      max_trigger_rate=2 * units.Hz,
-                      mattak_kwargs=mattak_kw)
 
 
-    rms = parse_variables(rnog_reader, det, config=config, args=args,
-                          calculate_variable=calculate_variable)
+    if np.any([run_file.endswith(".root") for run_file in run_files]):
+        calibration = config["calibration"][str(args.station)]
+        mattak_kw = config["mattak_kw"]
+        # note if no runtable provided, runtable is queried from the database
+        rnog_reader = dataProviderRNOG()
+        rnog_reader.begin(root_dirs,
+                          reader_kwargs = dict(
+                          selectors=selectors,
+                          read_calibrated_data=calibration == "full",
+                          apply_baseline_correction="approximate",
+                          convert_to_voltage=calibration == "linear",
+                          select_runs=True,
+                          run_types=["physics"],
+                          run_time_range=run_time_range,
+                          max_trigger_rate=config["max_trigger_rate"] * units.Hz,
+                          mattak_kwargs=mattak_kw),
+                          det=det)
+        rnog_reader = [rnog_reader]
+        folder_appendix = [None]
+    elif np.any([run_file.endswith(".nur") for run_file in run_files]):
+        rnog_reader = []
+        for root_dirs in root_dirs_list:
+            reader = eventReader()
+            reader.begin(root_dirs)
+            rnog_reader.append(reader)
+        folder_appendix = noise_sources + ["sum"]
+
+
+    function = functions[config["variable"]]
+    t0 = time.time()
+    for i, reader in enumerate(rnog_reader):
+        output = parse_data(reader, det, config=config, args=args, logger=logger, calculation_function=function, folder_appendix=folder_appendix[i])
+    dt = time.time() - t0
+
+    if np.any([run_file.endswith(".root") for run_file in run_files]):
+        logger.debug(f"code took {dt} for {len(reader.reader.get_events_information())} events")
+
+#    output = parse_data(rnog_reader, det, config=config, args=args, logger=logger, calculation_function=populate_spec_amplitude_histogram)
+    
+# test
+#    print(output.shape)
+#    print(output[0][400])
+#
+#    function_kwargs = config["variable_function_kwargs"]["clean"]
+#    hist_range= function_kwargs["hist_range"]
+#    nr_bins= function_kwargs["nr_bins"]
+#    bin_edges = np.linspace(hist_range[0], hist_range[1], nr_bins + 1)
+#    plt.stairs(output[0, 400], edges=bin_edges) 
+#    plt.savefig("test")
+#    print_malloc_snapshot()

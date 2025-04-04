@@ -13,3 +13,12 @@ data
 */*.pdf
 */*.png
 submit
+trace_mem.txt
+.condor*
+*.pickle
+*.h5
+debug.txt
+*.sh
+RNO-G_noise_study.code-workspace
+testing
+*.log
