@@ -1,0 +1,10 @@
+{
+    "save_dir" : "/home/ruben/Documents/data/noise_study",
+    "include_det_signal_chain" : 1,
+
+    "channels_to_include" : [0, 4, 7, 12, 13],
+    "noise_sources" : ["ice", "electronic", "galactic"],
+    "include_sum" : 1,
+    "electronic_temperature" : 80
+
+}

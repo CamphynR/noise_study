@@ -88,7 +88,11 @@ class channelThermalNoiseAdder:
         """
         temperature_folder = "/home/ruben/Documents/projects/RNO-G_noise_study/sim/library"
         self.temperature_files = [f"{temperature_folder}/eff_temperature_-100m_ntheta100_GL3.json",
-                                  f"{temperature_folder}/eff_temperature_-40m_ntheta100.json"]
+                                  f"{temperature_folder}/eff_temperature_-40m_ntheta100.json",
+                                  f"{temperature_folder}/eff_temperature_-1.0m_ntheta100_GL3.json",
+                                  f"{temperature_folder}/eff_temperature_-2.0m_ntheta100_GL3.json", 
+                                  f"{temperature_folder}/eff_temperature_-3.0m_ntheta100_GL3.json", 
+                                  ]
 
         self.eff_temperature = {}
         for temperature_file in self.temperature_files:
@@ -97,7 +101,7 @@ class channelThermalNoiseAdder:
 
         self.nr_theta_bins = len(self.thetas)
         self.channel_depths = {0 : -100, 4 : -100,
-                               7 : -40}
+                               7 : -40, 12: -1.0, 13: -1.0}
 
         self.phis = np.linspace(0 * units.degree, 360 * units.degree, nr_phi_bins)
         return
