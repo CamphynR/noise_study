@@ -16,7 +16,7 @@ from NuRadioReco.modules.channelGenericNoiseAdder import channelGenericNoiseAdde
 from NuRadioReco.modules.channelGalacticNoiseAdder import channelGalacticNoiseAdder
 from NuRadioReco.modules.io.eventWriter import eventWriter
 from NuRadioReco.modules.RNO_G.hardwareResponseIncorporator import hardwareResponseIncorporator
-from NuRadioReco.utilities import units
+from NuRadioReco.utilities import units, fft
 
 from dbAmplifier import dbAmplifier
 from channelThermalNoiseAdder import channelThermalNoiseAdder
@@ -27,6 +27,11 @@ from utilities.utility_functions import read_pickle, write_pickle, read_config, 
 from temp_to_noise import temp_to_volt
 
 
+def padding_function(trace):
+    padded_trace = np.pad(trace, len(trace), mode="reflect")
+    filt = np.r_[np.linspace(0., 1., len(trace)/2), np.ones_like(trace), np.linspace(1., 0., len(trace)/2)]
+    padded_trace *= filt
+    return padded_trace
 
 
 def create_sim_event(station_id, channel_ids, detector, frequencies, sampling_rate):
@@ -54,10 +59,11 @@ def get_traces_from_event(event):
 def create_thermal_noise_events(nr_events, station_id, detector,
                                 choose_channels=None,
                                 include_det_signal_chain=True,
-                                noise_sources=["ice", "electronic", "galactic", "galactic_min", "galactic_max"],
+                                noise_sources=["ice", "electronic", "galactic"],
                                 include_sum = True,
                                 electronic_temperature=80*units.kelvin,
-                                passband = None):
+                                passband = None,
+                                padding_length=8192):
     # electronic noise temperature, refer to eric's POS for this (PoS(ICRC2023)1171)
 
     # detector and trace parameters
@@ -94,7 +100,7 @@ def create_thermal_noise_events(nr_events, station_id, detector,
     hardware_response.begin()
 
     system_response = systemResonseTimeDomainIncorporator()
-    system_response.begin(response_path="sim/library/deep_impulse_responses.json")
+    system_response.begin(response_path="sim/library/deep_impulse_responses.json", det=detector)
 
 
     events = []
@@ -122,10 +128,13 @@ def create_thermal_noise_events(nr_events, station_id, detector,
                 galactic_noise_adder.run(event_types[i], station, detector, manual_time=time)
 
         if include_sum:
-            traces_sum = np.zeros((len(channel_ids), nr_samples))
+            # traces_sum = np.zeros((len(channel_ids), nr_samples))
+            traces_sum = np.zeros((len(channel_ids), nr_samples + padding_length))
             for event in event_types:
                 traces = get_traces_from_event(event)
-                traces_sum += traces
+                traces_padded = np.array(
+                    [np.pad(trace, int(padding_length/2), mode="constant", constant_values=0.) for trace in traces])
+                traces_sum += traces_padded
             station = Station(station_id)
             station.set_station_time(detector.get_detector_time())
             for i, channel_id in enumerate(channel_ids):
@@ -190,9 +199,9 @@ if __name__ == "__main__":
                       "HPol" : "RNOG_hpol_v4_8inch_center_n1.74"}
 
     logging.debug("querying detector")
+    detector_time = datetime.datetime(2023, 8, 1)
     detector = ModDetector(database_connection='RNOG_public', log_level=log_level,
-                           select_stations=station_id)
-    detector_time = datetime.datetime(2022, 8, 1)
+                           select_stations=station_id)#, database_time=detector_time)
     detector.update(detector_time)
     logging.debug("done querying detector")
 
@@ -243,7 +252,7 @@ if __name__ == "__main__":
 
     if not args.debug:
         nr_batches = 5
-        events_per_batch = 100
+        events_per_batch = 200
         with multiprocessing.Pool() as p:
             p.map(events_process, range(nr_batches))
 
@@ -252,21 +261,36 @@ if __name__ == "__main__":
 
     if args.debug:
         nr_batches = 1
-        events_per_batch = 1
+        events_per_batch = 50
         events = events_process(0)
 
         labels = ["ice", "electronic", "galactic", "sum"]
         fig, ax = plt.subplots()
-        for i, event in enumerate(events):
-            event = event[0]
-            station = event.get_station()
-            channel = station.get_channel(7)
-            nr_samples = 2048
-            sampling_rate = 3.2 * units.GHz
-            frequencies = np.fft.rfftfreq(nr_samples, d = 1./sampling_rate)
-            frequency_spectrum = channel.get_frequency_spectrum()
-            ax.plot(frequencies, np.abs(frequency_spectrum), label=labels[i], zorder=-1*i)
-            ax.set_xlabel("freq / GHz")
-            ax.set_ylabel("Spectral amplitude / V/GHZ")
-            ax.legend()
-        fig.savefig("test.png")
+        freq_spectra = []
+        # for i, event in enumerate(events):
+        #     event = event[0]
+        #     station = event.get_station()
+        #     channel = station.get_channel(0)
+        #     nr_samples = channel.get_number_of_samples()
+        #     sampling_rate = channel.get_sampling_rate()
+        #     frequencies = np.fft.rfftfreq(nr_samples, d = 1./sampling_rate)
+        #     frequency_spectrum = channel.get_frequency_spectrum()
+        #     freq_spectra.append(frequency_spectrum)
+
+        for i, event_type in enumerate(events):
+            if i ==3:
+                for event in event_type:
+                    station = event.get_station()
+                    channel = station.get_channel(0)
+                    nr_samples = channel.get_number_of_samples()
+                    sampling_rate = channel.get_sampling_rate()
+                    frequencies = np.fft.rfftfreq(nr_samples, d = 1./sampling_rate)
+                    frequency_spectrum = channel.get_frequency_spectrum()
+                    freq_spectra.append(frequency_spectrum)
+        frequency_spectrum_mean = np.mean(np.abs(freq_spectra), axis=0)
+
+        ax.plot(frequencies, frequency_spectrum_mean)
+        ax.set_xlabel("freq / GHz")
+        ax.set_ylabel("Spectral amplitude / V/GHZ")
+        ax.set_xlim(None, 1.)
+        fig.savefig("test_sim.png")
