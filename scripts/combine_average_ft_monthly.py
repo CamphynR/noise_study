@@ -1,4 +1,5 @@
 import argparse
+from natsort import natsorted
 import numpy as np
 
 from utilities.utility_functions import read_pickle, write_pickle
@@ -40,10 +41,23 @@ if __name__ == "__main__":
     parser.add_argument("--pickles", nargs="+")
     args = parser.parse_args()
     
+    args.pickles = natsorted(args.pickles)
+
     frequencies_prev, frequency_spectrum_prev, var_frequency_spectrum_prev, nr_events_prev, header_prev = read_freq_spec_file(args.pickles[0])
     begin_time_prev, end_time_prev = header_prev["begin_time"], header_prev["end_time"]
+    just_switched_month = False
+
     for i, pickle in enumerate(args.pickles[1:]):
         frequencies, frequency_spectrum, var_frequency_spectrum, nr_events, header = read_freq_spec_file(pickle)
+        if just_switched_month:
+            frequency_spectrum_prev = frequency_spectrum
+            var_frequency_spectrum_prev = var_frequency_spectrum
+            nr_events = 0
+            begin_time_prev = header["begin_time"]
+            end_time_prev = header["end_time"]
+            just_switched_month = False
+            continue
+
         assert np.equal(frequencies.all(), frequencies_prev.all()), f"frequencies of {i}'th file are not equal to {i}-1th frequencies"
         var_frequency_spectrum_prev = combine_vars(var_frequency_spectrum_prev, var_frequency_spectrum,
                                               frequency_spectrum_prev, frequency_spectrum,
@@ -53,15 +67,26 @@ if __name__ == "__main__":
         begin_time_prev, end_time_prev = combine_times(begin_time_prev, end_time_prev, header["begin_time"], header["end_time"])
         nr_events_prev += nr_events 
 
-    result_dictionary = read_pickle(args.pickles[0])
-    result_dictionary["frequency_spectrum"] = frequency_spectrum_prev
-    result_dictionary["var_frequency_spectrum"] = var_frequency_spectrum_prev
-    print(begin_time_prev)
-    print(end_time_prev)
-    result_dictionary["header"]["nr_events"] = nr_events
-    result_dictionary["header"]["begin_time"] = begin_time_prev
-    result_dictionary["header"]["end_time"] = end_time_prev
+        prev_month = header_prev["begin_time"][0].datetime.month
+        month = header["begin_time"][0].datetime.month
+        if prev_month != month:
+            print("New month, saving \n ----------")
+            result_dictionary = read_pickle(args.pickles[0])
+            result_dictionary["frequency_spectrum"] = frequency_spectrum_prev
+            result_dictionary["var_frequency_spectrum"] = var_frequency_spectrum_prev
+            print(begin_time_prev)
+            print(end_time_prev)
+            result_dictionary["header"]["nr_events"] = nr_events
+            result_dictionary["header"]["begin_time"] = begin_time_prev
+            result_dictionary["header"]["end_time"] = end_time_prev
+            
+            just_switched_month = True
 
-    pickle_file = args.pickles[0].rsplit("_", 1)[0]
-    pickle_file += "_combined.pickle"
-    write_pickle(result_dictionary, pickle_file)
+            pickle_file = args.pickles[0].rsplit("_", 1)[0]
+            pickle_file += f"_month_{prev_month}_combined.pickle"
+            write_pickle(result_dictionary, pickle_file)
+
+
+        header_prev = header
+
+
