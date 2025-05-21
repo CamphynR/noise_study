@@ -20,7 +20,7 @@ def rayleigh(spec_amplitude, sigma):
 
 
 
-def produce_rayleigh_params(bin_centers, histograms, rayleigh_function, sigma_guess = 0.01):
+def produce_rayleigh_params(bin_centers, histograms, rayleigh_function, sigma_guess = 0.1):
     params = []
     covs = []
     for i, histogram in enumerate(histograms):
@@ -29,6 +29,9 @@ def produce_rayleigh_params(bin_centers, histograms, rayleigh_function, sigma_gu
             param = [0]
             cov = [[0]]
         else:
+#            cs = np.cumsum(histogram)
+#            fit_range = np.where(cs < np.percentile(cs, 60))
+#            param, cov  = curve_fit(rayleigh_function, bin_centers[fit_range], histogram[fit_range], p0 = sigma_guess)
             param, cov  = curve_fit(rayleigh_function, bin_centers, histogram, p0 = sigma_guess)
         params.append(param)
         covs.append(cov)
@@ -81,7 +84,6 @@ if __name__ == "__main__":
         sigmas, covs = produce_rayleigh_params(bin_centers, spec_amplitude_histograms[ch][selection], rayleigh)
         sigmas_list.append(sigmas)
         covs_list.append(covs)
-        break
 
     spec_hist_dict["scale_parameters"] = sigmas_list
     spec_hist_dict["scale_parameters_cov"] = covs_list
@@ -137,13 +139,16 @@ if __name__ == "__main__":
                     histograms_comp = spec_amplitude_histograms_comp[channel_idx][test_idx]
                     axs[i].stairs(histograms_comp, edges=bin_edges, label=label, ls="dashed", zorder=3)
 
-            label = "full vc and cw filter"
-            histograms = spec_amplitude_histograms[channel_idx][test_idx]
+            label = "data"
+            histograms = spec_amplitude_histograms[channel_idx][selection][test_idx]
             axs[i].stairs(histograms, edges=bin_edges, label=label)
-            axs[i].plot(bin_centers, rayleigh(bin_centers, sigmas_list[channel_idx][test_idx]), label=f"fit on {label}")
-            axs[i].set_title(f"freq = {frequencies[test_idx]}")
-            # ax.text(0.6, 5, f"scale param = {sigmas_list[channel_idx][test_idx]}")
+            axs[i].plot(bin_centers, rayleigh(bin_centers, sigmas_list[channel_idx][test_idx]), label=f"fit")
+            axs[i].set_title(f"freq = {frequencies[test_idx]:.2f} GHz")
+            ax.text(0.6, 5, f"scale param = {sigmas_list[channel_idx][test_idx]}")
             # axs[i].set_yscale("log")
             axs[i].legend()
-        fig.savefig("test")
+        fig.savefig(f"test_rayleigh_fit_to_distr_s{station_id}.png")
+        for ax in axs:
+            ax.set_yscale("log")
+        fig.savefig(f"test_rayleigh_fit_to_distr_s{station_id}_log.png")
         print(spec_hist_dict["header"]["nr_events"])
