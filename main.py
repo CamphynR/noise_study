@@ -155,7 +155,7 @@ if __name__ == "__main__":
                         default = None)
     parser.add_argument("--debug", action = "store_true")
     
-    parser.add_argument("--config", help = "path to config.json file", default = "config.json")
+    parser.add_argument("--config", help = "path to config.json file", default = "configs/config.json")
     parser.add_argument("--filename_appendix", default = "")
     
     parser.add_argument("--skip_clean", action = "store_true")
@@ -169,9 +169,9 @@ if __name__ == "__main__":
         config = json.load(config_json)
 
 
-    logger = logging.getLogger(__name__)
-    log_level = logging.DEBUG if args.debug else logging.WARNING
+    log_level = logging.DEBUG if args.debug else logging.CRITICAL
     logging.basicConfig(level = log_level)
+    logger = logging.getLogger(__name__)
 
 
     calculate_variable = functions[config["variable"]]
@@ -200,6 +200,7 @@ if __name__ == "__main__":
         root_dirs = glob.glob(f"{data_dir}/station{args.station}/run{args.run}/")
     else:
         root_dirs = glob.glob(f"{data_dir}/station{args.station}/run*")
+        print(root_dirs)
         run_files = glob.glob(f"{data_dir}/station{args.station}/run**/*", recursive=True)
         if np.any([run_file.endswith(".root") for run_file in run_files]):
             root_dirs = [root_dir for root_dir in root_dirs if not int(os.path.basename(root_dir).split("run")[-1]) in broken_runs_list]
@@ -212,7 +213,7 @@ if __name__ == "__main__":
             config["channels_to_include"] = channels_to_include
         elif np.any([run_file.endswith(".nur") for run_file in run_files]):
             config["simulation"] = True
-            sim_config_path = glob.glob(f"{data_dir}/config*")[0]
+            sim_config_path = glob.glob(f"{data_dir}/station{args.station}/config*")[0]
             with open(sim_config_path, "r") as sim_config_file:
                 sim_config = json.load(sim_config_file)
             config.update(sim_config)
@@ -268,7 +269,9 @@ if __name__ == "__main__":
             reader = eventReader()
             reader.begin(root_dirs)
             rnog_reader.append(reader)
-        folder_appendix = noise_sources + ["sum"]
+        folder_appendix = noise_sources
+        if config["include_sum"]:
+            folder_appendix.append("sum")
 
 
     function = functions[config["variable"]]

@@ -1,6 +1,8 @@
 import datetime
+import glob
 import json
 import matplotlib.pyplot as plt
+from natsort import natsorted
 import numpy as np
 import os
 import pickle
@@ -12,6 +14,89 @@ import modules
 
 from utilities.utility_functions import create_nested_dir
 from utilities.NpEncoder import NpEncoder
+
+
+def open_select_runs_list(select_runs_path):
+    with open(select_runs_path, "r") as select_runs_file:
+        select_runs_list = json.load(select_runs_file)
+    return select_runs_list
+
+
+
+def find_data_files(args, config):
+
+    if args.data_dir is None:
+        data_dir = os.environ["RNO_G_DATA"]
+    else:
+        data_dir = args.data_dir
+
+
+    if args.run is not None:
+        root_dirs = glob.glob(f"{data_dir}/station{args.station}/run{args.run}/")
+        run_files = glob.glob(f"{data_dir}/station{args.station}/run{args.run}/*")
+        is_root = np.any([run_file.endswith(".root") for run_file in run_files])
+        is_nur = np.any([run_file.endswith(".nur") for run_file in run_files])
+        return root_dirs, is_root, is_nur, config
+
+    if args.select_runs_path is not None:
+        select_runs_list = open_select_runs_list(args.select_runs_path)
+#        print(select_runs_list)
+#        for run in select_runs_list:
+#            print(run)
+#            glob.glob(f"{data_dir}/station{args.station}/run{run}")[0]
+        root_dirs = [glob.glob(f"{data_dir}/station{args.station}/run{run}")[0] for run in select_runs_list]
+    else:
+        root_dirs = glob.glob(f"{data_dir}/station{args.station}/run*")
+
+    run_files = glob.glob(f"{data_dir}/station{args.station}/run**/*", recursive=True)
+    if not len(run_files):
+        run_files = glob.glob(f"{data_dir}/station{args.station}/clean/*")
+    is_root = np.any([run_file.endswith(".root") for run_file in run_files])
+    is_nur = np.any([run_file.endswith(".nur") for run_file in run_files])
+
+    if is_root == is_nur:
+        raise OSError("Either root and nur files are mixed or ")
+
+    if is_root:
+        root_dirs = sorted(root_dirs, key=lambda root_dir : int(os.path.basename(root_dir)[3:]))
+        if args.nr_batches is not None:
+            root_dirs = np.array(root_dirs)
+            root_dirs = np.array_split(root_dirs, args.nr_batches)
+        channels_to_include = list(np.arange(24))
+        config["channels_to_include"] = channels_to_include
+        config["simulation"] = False
+    elif is_nur:
+        sec_config_path = glob.glob(f"{data_dir}/station{args.station}/config*")[0]
+        sec_config_path = glob.glob(f"{data_dir}/station{args.station}/config*")[0]
+        with open(sec_config_path, "r") as sec_config_file:
+            sec_config = json.load(sec_config_file)
+        config["simulation"] = sec_config.get("simulation", True)
+
+        if config["simulation"]:
+            config.update(sec_config)
+            noise_sources = config["noise_sources"]
+            root_dirs_list = []
+            for noise_source in noise_sources:
+                root_dirs_tmp = [glob.glob(f"{root_dir}/events_{noise_source}_batch*")[0] for root_dir in root_dirs]
+                root_dirs_list.append(root_dirs_tmp)
+            if config["include_sum"]:
+                root_dirs_tmp = [glob.glob(f"{root_dir}/events_batch*")[0] for root_dir in root_dirs]
+                root_dirs_list.append(root_dirs_tmp)
+        else:
+            run_files = natsorted(run_files)
+            root_dirs = run_files
+            if args.nr_batches is not None:
+                root_dirs = np.array(run_files)
+                root_dirs = np.array_split(root_dirs, args.nr_batches)
+            channels_to_include = list(np.arange(24))
+            config["channels_to_include"] = channels_to_include
+            
+    else:
+        raise TypeError("Data extension not recognized")
+
+
+    return root_dirs, is_root, is_nur, config
+
 
 
 
@@ -46,7 +131,7 @@ def parse_data(reader, detector, config, args, logger,
     calculated_output = calculation_function(reader, detector, config, args, logger, directory, cleaning_modules, **function_kwargs)
 
     # copies the config used for future reference
-    config_name = f"{directory}/config.json"
+    config_name = f"{directory}/station{args.station}/config.json"
     settings_dict = {**config, **vars(args)}
     if os.path.isfile(config_name):
         os.remove(config_name)
@@ -54,15 +139,21 @@ def parse_data(reader, detector, config, args, logger,
         json.dump(settings_dict, f, cls=NpEncoder)
 
     if config["save"]:
-        src_dir = "/home/rcamphyn/tmp/data/"
+        src_dir = "/tmp/tmp_noise_study/"
+        if args.test:
+            src_dir = "/user/rcamphyn/tmp/tmp_noise_study/"
         dest_dir = config["save_dir"]
 
         # capture to stdout to use in pipeline 
         job_dir = directory.split("/")
-        job_dir = job_dir[3:]
+        if args.test:
+            job_dir = job_dir[5:]
+        else:
+            job_dir = job_dir[3:]
         job_dir = "/".join(job_dir)
         job_dir = dest_dir + "/" + job_dir
-        subprocess.call(["rsync", "-vuar", "--delete", src_dir, dest_dir], stdout=subprocess.DEVNULL)
+        print(job_dir)
+        subprocess.call(["rsync", "-vuar", src_dir, dest_dir], stdout=subprocess.DEVNULL)
 
     return calculated_output
 
@@ -75,14 +166,17 @@ def construct_folder_hierarchy(config, args, folder_appendix=None):
     # assumes function name to be calculate_*
     function_name = config["variable"]
     # first save to /tmp directory native to computer node and afterwards copy to pnfs
-    save_dir = "/home/rcamphyn/tmp/data"
+    save_dir = "/tmp/tmp_noise_study"
+    if args.test:
+        save_dir = "/user/rcamphyn/tmp/tmp_noise_study"
     if "simulation" in config.keys():
         if config["simulation"] == True:
             save_dir += "/simulations"
+        else:
+            save_dir += "/data"
     else:
         save_dir += "/data"
-    # defining a savename overwrites the data structure and simply saves everything in a file,
-    # useful when running one script for multiple stations
+
     date = datetime.datetime.now().strftime("%Y_%m_%d")
     directory = f"{save_dir}/{function_name}/job_{date}"
 
@@ -106,7 +200,7 @@ def construct_folder_hierarchy(config, args, folder_appendix=None):
 
 
 
-def calculate_average_fft(reader, detector, config, args, logger, directory, cleaning_modules):
+def calculate_average_fft(reader, detector, config, args, logger, directory, cleaning_modules, max_nr_events=10000):
     station_id = args.station
     station_info = detector.get_station(station_id)
     nr_channels = len(station_info["channels"])
@@ -121,8 +215,18 @@ def calculate_average_fft(reader, detector, config, args, logger, directory, cle
     squared_frequency_spectrum = np.zeros((nr_channels, len(frequencies)))
     nr_events = 0
     for event in reader.run():
-        nr_events += 1
         station = event.get_station(args.station)
+        if args.test:
+#            print(event.get_id())
+            print(nr_events)
+
+        if nr_events == 0:
+            begin_time = station.get_station_time()
+            end_time = station.get_station_time()
+        if station.get_station_time() < begin_time:
+            begin_time = station.get_station_time()
+        if station.get_station_time() > end_time:
+            end_time = station.get_station_time()
         
         if clean_data:
             for cleaning_key in cleaning_modules.keys():
@@ -139,29 +243,34 @@ def calculate_average_fft(reader, detector, config, args, logger, directory, cle
             average_frequency_spectrum[channel_id] += spectrum
             squared_frequency_spectrum[channel_id] += spectrum**2
 
-            if args.test:
-                if nr_events == 1:
-                    if channel_id == 0:
-                        plt.plot(frequencies, spectrum)
-                        plt.xlabel("freq / GHz")
-                        plt.ylabel("spec a / V/GHz")
-                        plt.savefig("test_ft")
-                        plt.close()
-                        trace = channel.get_trace()
-                        plt.plot(trace)
-                        plt.xlabel("samples")
-                        plt.ylabel("amplitude / V")
-                        plt.savefig("test_trace")
-                        plt.close()
+#            if args.test:
+#                if nr_events == 1:
+#                    if channel_id == 0:
+#                        plt.plot(frequencies, spectrum)
+#                        plt.xlabel("freq / GHz")
+#                        plt.ylabel("spec a / V/GHz")
+#                        plt.savefig("test_ft")
+#                        plt.close()
+#                        trace = channel.get_trace()
+#                        plt.plot(trace)
+#                        plt.xlabel("samples")
+#                        plt.ylabel("amplitude / V")
+#                        plt.savefig("test_trace")
+#                        plt.close()
+        nr_events += 1
+        if args.test:
+            if nr_events == max_nr_events:
+                break
 
 
     average_frequency_spectrum /= nr_events
     squared_frequency_spectrum /= nr_events
     var_frequency_spectrum = squared_frequency_spectrum - average_frequency_spectrum**2
     
-    header = {"nr_events" : nr_events}
+    header = {"nr_events" : nr_events,
+              "begin_time" : begin_time,
+              "end_time" : end_time}
     result_dict = {"header" : header,
-                   "time" : station.get_station_time(),
                    "freq" : frequencies,
                    "frequency_spectrum" : average_frequency_spectrum,
                    "var_frequency_spectrum" : var_frequency_spectrum}
@@ -169,7 +278,7 @@ def calculate_average_fft(reader, detector, config, args, logger, directory, cle
     if config["save"]:
         filename = f"{directory}/station{station_id}/{clean}/average_ft"
         if args.batch_i is not None:
-            filename += f"_batch{args.batch_i}"
+            filename += f"_run{args.batch_i}"
         filename += ".pickle"
         with open(filename, "wb") as f:
             pickle.dump(result_dict, f)
@@ -179,11 +288,6 @@ def populate_spec_amplitude_histogram(reader, detector, config, args, logger, di
     station_id = args.station
     station_info = detector.get_station(station_id)
     nr_channels = len(station_info["channels"])
-    # assumes the same nr of smaples and sampling rate between channels
-    # assumtion due to sampling parameters being stored on the station_info level
-    nr_samples = station_info["number_of_samples"]
-    sampling_rate = station_info["sampling_rate"]
-    frequencies = np.fft.rfftfreq(nr_samples, d=1./sampling_rate)
     
     clean_data = not args.skip_clean
     clean = "raw" if args.skip_clean else "clean"
@@ -211,12 +315,24 @@ def populate_spec_amplitude_histogram(reader, detector, config, args, logger, di
                 if spec_max_ch > spec_max:
                     spec_max = spec_max_ch
             break 
+        
         hist_range = [0, spec_max]
         config["hist_range"] = hist_range
 
+    for event in reader.run():
+        station = event.get_station()
+        for channel in station.iter_channels():
+            if channel.get_id() not in config["channels_to_include"]:
+                continue
+            sampling_rate = channel.get_sampling_rate()
+            nr_samples = channel.get_number_of_samples()
+            frequencies = channel.get_frequencies()
+            break
+        break 
 
     bin_edges = np.linspace(hist_range[0], hist_range[1], nr_bins + 1)
     bin_centres = bin_edges[:-1] + np.diff(bin_edges[0:2]) / 2
+
     
     # populate histogram per channel and per frequency
     # so shape of data structure storing histograms is (channels, frequencies, bins)
@@ -276,7 +392,9 @@ def populate_spec_amplitude_histogram(reader, detector, config, args, logger, di
               "bin_centres" : bin_centres,
               "begin_time" : begin_time,
               "end_time" : end_time,
-              "events_info" : event_info}
+              "events_info" : event_info,
+              "sampling_rate" : sampling_rate,
+              "nr_samples" : nr_samples}
     result_dict = {"header" : header,
                    "time" : station.get_station_time(),
                    "freq" : frequencies,
@@ -285,7 +403,7 @@ def populate_spec_amplitude_histogram(reader, detector, config, args, logger, di
     if config["save"]:
         filename = f"{directory}/station{station_id}/{clean}/spec_amplitude_histograms"
         if args.batch_i is not None:
-            filename += f"_batch{args.batch_i}"
+            filename += f"_run{args.batch_i}"
         filename += ".pickle"
         with open(filename, "wb") as f:
             pickle.dump(result_dict, f)
@@ -307,7 +425,6 @@ def collect_traces(reader, detector, config, args, logger, directory, cleaning_m
     nr_events = 0
     for event in reader.run():
         nr_events += 1
-        print(nr_events)
         station = event.get_station(args.station)
         
         if clean_data:
@@ -357,7 +474,7 @@ def collect_spectra(reader, detector, config, args, logger, directory, cleaning_
     if config["save"]:
         filename = f"{directory}/station{station_id}/{clean}/spectra"
         if args.batch_i is not None:
-            filename += f"_batch{args.batch_i}"
+            filename += f"_run{args.batch_i}"
         filename += ".nur"
         event_writer = eventWriter()
         event_writer.begin(filename)
@@ -372,7 +489,7 @@ def collect_spectra(reader, detector, config, args, logger, directory, cleaning_
         for channel in station.iter_channels():
             # forces NuRadio to store spectra instead of traces
             spectrum = channel.get_frequency_spectrum()
-        event_writer.run(event, detector, mode={"Channels": True})
+        event_writer.run(event, None, mode={"Channels": True})
     event_writer.end()
 
 
