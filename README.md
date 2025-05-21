@@ -29,6 +29,11 @@ The simulations save thermal noise traces. To obtain spectra the main.py functio
 The final fitting is done by the spectrumFitter module under fitting/spectrumFitter.py
 
 
+## Note on station temperatures
+This folder normally includes csv files of temperature measurments but the files are too big for a github repo.
+The files are generated using Matthew's MonitoringDataAcces, which can be found on the RNO-G repo
+
+
 ## CLEANING
 use as event selection:
     type: "PHYSICS"
