@@ -5,6 +5,11 @@ The calibration has a wiki page, which can be found here: https://radio.uchicago
 
 It also includes code used to construct data-driven rayleigh noise
 
+# Disclaimer
+
+Be careful when running the code out of the box. Files are saved to the /tmp folder before being copied to the given save_dir (due to the HTCondor cluster on which this code is used)
+So your /tmp folder could max out which is not good!
+
 
 ## Calibration
 
