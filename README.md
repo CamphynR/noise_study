@@ -3,11 +3,28 @@
 This repository contains the code to construct, develop and test the thermal noise system response calibration.
 The calibration has a wiki page, which can be found here: https://radio.uchicago.edu/wiki/index.php/Thermal_noise_for_detector_response_calibration 
 
+It also includes code used to construct data-driven rayleigh noise
 
 
+## Calibration
+
+The calibration aims to compare forced tigger data with simulations in order to find an absolute system gain factor.
+The code for processing data is contained in main.py, main_multi.py and main_parser_functions.py
+main_multi.py is used for processing data, main.py is used for processing simulations
+The code uses a config file in which to specify what variables to calculate, what cleaning to apply, data ranges and voltage calibration
+To calculate spectra, the config file takes the variable "average_ft"
+The configs are placed under the configs folder, with config_all_options.json acting as a template.
+The config is given to the code as python main_multi.py --config configs/config_all_options.json
+
+The code for simulating thermal noise is under sim/thermal_noise/generate_thermal_noise_traces.py
+The simulations also use a config file, contained under sim/thermal_noise
+The folder sim/library contains all files used by the simulation software
+The simulations save thermal noise traces. To obtain spectra the main.py function is used.
+
+The final fitting is done by the spectrumFitter module under fitting/spectrumFitter.py
 
 
-## Notes to self:
+## CLEANING
 use as event selection:
     type: "PHYSICS"
     trigger rate < 2 Hz (higher trigger rates are probably windy/human activity periods)
