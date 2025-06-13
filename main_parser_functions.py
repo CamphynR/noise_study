@@ -1,3 +1,4 @@
+import copy
 import datetime
 import glob
 import json
@@ -10,6 +11,7 @@ import subprocess
 
 import NuRadioReco
 from NuRadioReco.modules.io.eventWriter import eventWriter
+from NuRadioReco.utilities import units
 import modules
 
 from utilities.utility_functions import create_nested_dir
@@ -117,8 +119,13 @@ def parse_data(reader, detector, config, args, logger,
         logger.debug("Setting up cleaning modules")
         # initialise cleaning modules selected in config
         cleaning_modules = dict((cf, cleaning_options[cf]()) for cf in config["cleaning"].keys())
-        for cleaning_key in cleaning_modules.keys():
-            cleaning_modules[cleaning_key].begin(**config["cleaning"][cleaning_key]["begin_kwargs"])
+        for cleaning_key in list(cleaning_modules.keys()):
+            if cleaning_key == "channelSinewaveSubtraction":
+                cleaning_modules[f"{cleaning_key}_sec"] = copy.copy(cleaning_modules[cleaning_key])
+                cleaning_modules[cleaning_key].begin(**config["cleaning"][cleaning_key]["begin_kwargs"])
+                cleaning_modules[f"{cleaning_key}_sec"].begin(**config["cleaning"][cleaning_key]["begin_kwargs"])
+            else:
+                cleaning_modules[cleaning_key].begin(**config["cleaning"][cleaning_key]["begin_kwargs"])
     
         
     # construct data folder structure, the function that does the calculations should save the output here
@@ -200,12 +207,22 @@ def construct_folder_hierarchy(config, args, folder_appendix=None):
 
 
 
-def calculate_average_fft(reader, detector, config, args, logger, directory, cleaning_modules, max_nr_events=10000):
+def calculate_average_fft(reader, detector, config, args, logger, directory, cleaning_modules, max_nr_events=100):
+    """
+    reader is an NuRadio eventReader object
+    """
     station_id = args.station
     station_info = detector.get_station(station_id)
+    # temperory until 2024 det is added to database
+    date = datetime.date.fromisoformat(config["run_time_range"][0])
+    sampl_rate_date = datetime.date.fromisoformat("2023-12-31")
+    if date > sampl_rate_date :
+        sampling_rate = 2.4 * units.GHz
+    else:
+        sampling_rate = station_info["sampling_rate"]
     nr_channels = len(station_info["channels"])
     nr_samples = station_info["number_of_samples"]
-    sampling_rate = station_info["sampling_rate"]
+
     frequencies = np.fft.rfftfreq(nr_samples, d=1./sampling_rate)
 
     clean_data = not args.skip_clean
@@ -216,7 +233,7 @@ def calculate_average_fft(reader, detector, config, args, logger, directory, cle
     nr_events = 0
     for event in reader.run():
         station = event.get_station(args.station)
-        if args.test:
+        if args.debug:
 #            print(event.get_id())
             print(nr_events)
 
@@ -230,8 +247,15 @@ def calculate_average_fft(reader, detector, config, args, logger, directory, cle
         
         if clean_data:
             for cleaning_key in cleaning_modules.keys():
+
+                if cleaning_key.endswith("_sec"):
+                    cleaning_key_stripped = cleaning_key.split("_")[0]
+                    run_kw = config["cleaning"][cleaning_key_stripped]["run_kwargs"]
+                else:
+                    run_kw = config["cleaning"][cleaning_key]["run_kwargs"]
+
                 cleaning_modules[cleaning_key].run(event, station, detector,
-                                                   **config["cleaning"][cleaning_key]["run_kwargs"])
+                                                   **run_kw)
         
         for channel in station.iter_channels():
             channel_id = channel.get_id()
@@ -243,9 +267,9 @@ def calculate_average_fft(reader, detector, config, args, logger, directory, cle
             average_frequency_spectrum[channel_id] += spectrum
             squared_frequency_spectrum[channel_id] += spectrum**2
 
-#            if args.test:
+#            if args.debug:
 #                if nr_events == 1:
-#                    if channel_id == 0:
+#                    if channel_id == 19:
 #                        plt.plot(frequencies, spectrum)
 #                        plt.xlabel("freq / GHz")
 #                        plt.ylabel("spec a / V/GHz")
@@ -258,7 +282,7 @@ def calculate_average_fft(reader, detector, config, args, logger, directory, cle
 #                        plt.savefig("test_trace")
 #                        plt.close()
         nr_events += 1
-        if args.test:
+        if args.debug:
             if nr_events == max_nr_events:
                 break
 
@@ -266,6 +290,15 @@ def calculate_average_fft(reader, detector, config, args, logger, directory, cle
     average_frequency_spectrum /= nr_events
     squared_frequency_spectrum /= nr_events
     var_frequency_spectrum = squared_frequency_spectrum - average_frequency_spectrum**2
+
+    if args.debug:
+        channel_id_test = 19
+        plt.plot(frequencies, average_frequency_spectrum[channel_id_test])
+        plt.xlabel("freq / GHz")
+        plt.ylabel("spec a / V/GHz")
+        plt.xlim(0., 1.)
+        plt.savefig("figures/tests/test_average_spectrum")
+        plt.close()
     
     header = {"nr_events" : nr_events,
               "begin_time" : begin_time,
