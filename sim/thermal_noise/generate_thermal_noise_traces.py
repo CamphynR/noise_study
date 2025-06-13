@@ -108,7 +108,8 @@ def create_thermal_noise_events(nr_events, station_id, detector,
 
     system_response = systemResonseTimeDomainIncorporator()
     system_response.begin(det=detector,
-                          response_path="sim/library/deep_impulse_responses.json"
+#                          response_path="sim/library/deep_impulse_responses.json"
+                          response_path=["sim/library/v2_v3_deep_impulse_responses.json", "sim/library/v2_v3_surface_impulse_responses.json"]
                           )
 
 
@@ -219,7 +220,7 @@ if __name__ == "__main__":
 #                            )
 #                           database_time=detector_time)
 
-#    json_filename = "/user/rcamphyn/software/NuRadioMC/NuRadioReco/detector/RNO_G/RNO_season_2023.json"
+#    json_filename = f"/user/rcamphyn/software/NuRadioMC/NuRadioReco/detector/RNO_G/RNO_season_{config['season']}.json"
 #    with open(json_filename, "r") as json_file:
 #        det_dict = json.load(json_file)
 #        for key in det_dict["channels"].keys():
@@ -230,7 +231,8 @@ if __name__ == "__main__":
 #            if det_dict["channels"][key]["channel_id"] in channel_types["LPDA"]:
 #                det_dict["channels"][key]["ant_type"] = antenna_models["LPDA"]
 
-    json_filename_new = "/user/rcamphyn/software/NuRadioMC/NuRadioReco/detector/RNO_G/RNO_season_2023_mod_antenna.json"
+    json_filename_new = f"/user/rcamphyn/software/NuRadioMC/NuRadioReco/detector/RNO_G/RNO_season_{config['season']}.json"
+#    json_filename_new = f"/user/rcamphyn/software/NuRadioMC/NuRadioReco/detector/RNO_G/RNO_season_{config['season']}_mod_antenna.json"
 
 #    with open(json_filename_new, "w") as json_file:
 #        json.dump(det_dict, json_file)
