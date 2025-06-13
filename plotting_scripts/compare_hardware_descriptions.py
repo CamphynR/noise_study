@@ -28,7 +28,7 @@ if __name__ == "__main__":
 
 
     plt.style.use("retro")
-    channel_id = 0
+    channel_id = 4
     for station_id in args.station:
         signal_chain = det.get_signal_chain_response(station_id, channel_id)
         if args.debug:
@@ -36,15 +36,15 @@ if __name__ == "__main__":
         hardware_db_response = signal_chain(frequencies)
         hardware_db_response = hardware_db_response / np.max(np.abs(hardware_db_response))
 
-#        plt.plot(frequencies, np.abs(hardware_db_response), label=f"S21 measurements, station {station_id}, channel {channel_id}",
-#                 lw=2.)
+        plt.plot(frequencies, np.abs(hardware_db_response), label=f"S21 measurements, station {station_id}, channel {channel_id}",
+                 lw=2.)
 
 
     system_response_time = systemResonseTimeDomainIncorporator()
     system_response_time.begin(response_path="sim/library/deep_impulse_responses.json", det=0)
     response_channel_keys = ["ch2_6dB", "ch11_6dB", "ch9_6dB", "ch2"]
     channel_mapping = {2 : "ch2_6dB" ,  11 : "ch11_6dB", 9 : "ch9_6dB", 0: "ch2"}
-    channel_ids = [2]
+    channel_ids = [2, 9]
     for channel_id in channel_ids:
         response = system_response_time.get_response(channel_id=channel_id)
         freqs = np.fft.rfftfreq(2048, d=1./3.2)
