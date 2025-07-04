@@ -37,25 +37,28 @@ if __name__ == "__main__":
     orientation = detector.get_antenna_orientation(args.station, args.channel)
 
     antenna_provider = AntennaPatternProvider()
-    antenna_pattern = antenna_provider.load_antenna_pattern(antenna_model)
+    antenna_pattern = antenna_provider.load_antenna_pattern(antenna_model, interpolation_method="complex")
+#    antenna_pattern = antenna_provider.load_antenna_pattern("createLPDA_100MHz_z1cm_InFirn_RG")
 
-    zeniths = np.linspace(0 * units.degree, 180 * units.degree, 7)
+    zeniths = np.linspace(0 * units.degree, 180 * units.degree, 45)
 
     if args.channel in channel_mapping["VPol"]:
         zenith_max = 90 * units.degree
         freqs = np.linspace(0 * units.MHz, 1000 * units.MHz, 100)
         pol = "theta"
     elif args.channel in channel_mapping["HPol"]:
-        zenith_max = 90 * units.degree
+        zenith_max = 60 * units.degree
         freqs = np.linspace(0 * units.MHz, 1000 * units.MHz, 100)
         pol = "phi"
     else:
         zenith_max = orientation[0]
-        freqs = np.linspace(0 * units.MHz, 200 * units.MHz, 100)
+        print(orientation)
+        freqs = np.linspace(0 * units.MHz, 250 * units.MHz, 1000)
+#        freqs = np.fft.rfftfreq(2048, d=1./3.2)
         pol = "theta"
     zenith_idx = np.where(np.isclose(zeniths, zenith_max, atol=180*units.degree/7/2))[0][0]
 
-    azimuths = np.linspace(0 * units.degree , 360 * units.degree, 180)
+    azimuths = np.linspace(0 * units.degree , 360 * units.degree, 90)
     VELs = []
     for zenith in zeniths:
         vel = []
@@ -66,6 +69,7 @@ if __name__ == "__main__":
     
     VELs = np.array(VELs)
 
+    print(VELs.shape)
 
 
     plt.style.use("retro")
@@ -74,12 +78,30 @@ if __name__ == "__main__":
     axs[0].set_title("VEL theta")
     pol_phi = axs[1].pcolormesh(azimuths, freqs/units.MHz, np.moveaxis(VELs[zenith_idx, :, 1], 0, 1), vmax=np.max(VELs))
     axs[1].set_title("VEL phi")
+    fig.suptitle("VEL(azimituth, freq)")
     fig.colorbar(pol_theta, ax=axs, location="bottom", shrink=0.6, label="|VEL|")
-    fig.savefig(f"figures/tests/antenna_vel_ch_{args.channel}", bbox_inches="tight")
+    fig.savefig(f"figures/tests/antenna_vel_ch_{args.channel}_freq_azi", bbox_inches="tight")
+    plt.close()
+
+
+    fig, axs = plt.subplots(1, 2, figsize=(10, 10), subplot_kw={"projection" : "polar"})
+#    freq_idx = np.where(np.isclose(freqs, 300 * units.MHz, atol=np.diff(freqs)[0]*0.5))[0][0]
+    freq_idx = 0
+    pol_theta = axs[0].pcolormesh(azimuths, zeniths/units.degree, VELs[:, :, 0, freq_idx], vmax=np.max(VELs[:, :, :, freq_idx]))
+    axs[0].set_title("VEL theta")
+    pol_phi = axs[1].pcolormesh(azimuths, zeniths/units.degree, VELs[:, :, 1, freq_idx], vmax=np.max(VELs[:, :, :, freq_idx]))
+    axs[1].set_title("VEL phi")
+    fig.suptitle("VEL(azimituth, zenith)")
+    fig.colorbar(pol_theta, ax=axs, location="bottom", shrink=0.6, label="|VEL|")
+    fig.savefig(f"figures/tests/antenna_vel_ch_{args.channel}_zen_azi", bbox_inches="tight")
+    plt.close()
 
 
     fig, ax = plt.subplots(figsize=(20, 10))
     pol_idx = 0 if pol=="theta" else 1
+#    def sliding_median(arr, window):
+#        return np.mean(np.lib.stride_tricks.sliding_window_view(arr, (window,)), axis=1)
+#    ax.plot(sliding_median(freqs, 10)/units.MHz, sliding_median(VELs[zenith_idx, 0, pol_idx], 10))
     ax.plot(freqs/units.MHz, VELs[zenith_idx, 0, pol_idx])
     ax.set_xlabel("freq / MHz")
     ax.set_ylabel("VEL / a.u.")

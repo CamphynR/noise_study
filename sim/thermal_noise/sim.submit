@@ -1,5 +1,5 @@
 getenv=True
-STATION=24
+STATION=11
 batch_name=thermal_noise_sim_s$(STATION)
 
 executable = /user/rcamphyn/envs/mattak_env/bin/python3

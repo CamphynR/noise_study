@@ -30,9 +30,9 @@ if __name__ == '__main__':
     pdf = PdfPages("figures/absolute_ampl_calibration/average_ft_data.pdf")
     for channel_id in np.arange(24):
         if len(args.pickle) == 2:
-            fig, (ax, ax_res) = plt.subplots(2, 1, sharex=True, height_ratios=(2, 1))
+            fig, (ax, ax_res) = plt.subplots(2, 1, sharex=True, height_ratios=(2, 1), figsize=(20,10))
         else:
-            fig, ax = plt.subplots()
+            fig, ax = plt.subplots(figsize=(20,10))
         for i, pickle in enumerate(args.pickle):
             frequency, frequency_spectrum, var_frequency_spectrum, header = read_average_freq_spectrum_from_pickle(pickle)
             std_frequency_spectrum = np.sqrt(var_frequency_spectrum) / np.sqrt(header["nr_events"])
@@ -55,11 +55,22 @@ if __name__ == '__main__':
         ax.grid(which="major", alpha=0.8)
         ax.minorticks_on()
         ax.grid(which="minor", alpha=0.2, ls="dashed")
-        ax.legend()
+        ax.tick_params(axis="both", which="major", labelsize=32)
+        ax.legend(fontsize=32)
         ax.set_xlim(0., 1.)
-        ax.set_xlabel("freq / GHz")
-        ax.set_ylabel("spectral amplitude / V/GHz")
-        ax.set_title(f"Channel {channel_id}")
+        ax.set_xlabel("freq / GHz", size=32)
+        ax.set_ylabel("spectral amplitude / V/GHz", size=32)
+#        ax.set_title(f"Channel {channel_id}")
+        ax.text(0.95, 0.5, "Preliminary",
+                transform=ax.transAxes,
+                ha="right",
+                va="center",
+                color="red",
+                size=42,
+                bbox=dict(
+                    boxstyle="round",
+                    facecolor="white",
+                    edgecolor="red"))
         fig.tight_layout()
         fig.savefig(pdf, format="pdf", bbox_inches="tight")
         plt.close()

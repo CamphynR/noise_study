@@ -20,7 +20,6 @@ def open_response_file(response_path):
     times = response_dic["time"]
 
     keys = list(response_dic.keys())
-    print(keys)
     for key in keys:
         if key == "time":
             continue
@@ -126,7 +125,16 @@ class systemResonseTimeDomainIncorporator():
             self.response["surface"]["gain"] = rescale_response(self.response["surface"]["gain"])
             return
 
-        if response_path.endswith(".json"):
+        if len(response_path) == 2:
+            impulse_response_deep = open_response_file(response_path[0])
+            impulse_response_surface = open_response_file(response_path[1])
+            
+            self.response["deep"]["gain"] = convert_response_to_spectrum(impulse_response_deep, "v3_ch1_62dB")
+            self.response["helper"]["gain"] = convert_response_to_spectrum(impulse_response_deep, "v3_ch4_62dB")
+            self.response["surface"]["gain"] = convert_response_to_spectrum(impulse_response_surface, "v3_ch13")
+                
+        else:
+            # assume only deep response is given since for 2023
             # surface response is not available as a json so this is still queried
             impulse_response_deep = open_response_file(response_path)
             self.response["surface"] = load_amp_response(amp_type="rno_surface_impulse")
@@ -135,11 +143,11 @@ class systemResonseTimeDomainIncorporator():
             self.response["helper"]["gain"] = convert_response_to_spectrum(impulse_response_deep, "ch9_6dB")
 
 
-            self.response["deep"]["gain"] = rescale_response(self.response["deep"]["gain"])
-            self.response["helper"]["gain"] = rescale_response(self.response["helper"]["gain"])
-            self.response["surface"]["gain"] = rescale_response(self.response["surface"]["gain"])
+        self.response["deep"]["gain"] = rescale_response(self.response["deep"]["gain"])
+        self.response["helper"]["gain"] = rescale_response(self.response["helper"]["gain"])
+        self.response["surface"]["gain"] = rescale_response(self.response["surface"]["gain"])
 
-            return
+        return
 
 
     def run(self, event, station, det):
@@ -240,7 +248,7 @@ if __name__ == "__main__":
                               response_path=response_path
                               )
 
-    channel_id = 7
+    channel_id = 0
     response = system_incorporator.get_response(channel_id)
     nr_sims = 1000
     test_noise = []
@@ -253,7 +261,7 @@ if __name__ == "__main__":
 
 
     plt.style.use("gaudi")
-    fig, axs = plt.subplots(2, 1, sharex=True)
+    fig, axs = plt.subplots(2, 1, sharex=True, figsize=(15, 20))
     axs[0].plot(frequencies, response(frequencies))
     axs[0].set_ylabel("Gain")
     axs[0].set_title("Gain of deep respone")

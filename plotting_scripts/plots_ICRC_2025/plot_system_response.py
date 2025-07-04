@@ -30,34 +30,31 @@ if __name__ == "__main__":
 
     system_response_time = systemResonseTimeDomainIncorporator()
     system_response_time.begin(det, response_path="sim/library/deep_impulse_responses.json")
-    channel_ids_left = [2, 9]
-    channel_ids_right = [13]
-    channel_labels = {2: "deep pa component",
-                      9 : "deep helper component",
-                      13 : "surface component"}
+    channel_ids = [2, 9, 13]
+    channel_labels = {2: "Phased Array",
+                      9 : "Helper",
+                      13 : "Surface"}
 
-    fig, axs = plt.subplots(1, 2, sharey=True, figsize=(30, 10))
-    for channel_id in channel_ids_left:
+    fig, ax = plt.subplots(figsize=(20, 10))
+    for channel_id in channel_ids:
         response = system_response_time.get_response(channel_id=channel_id)
 
-        axs[0].plot(frequencies, response(frequencies), label=f"System response {channel_labels[channel_id]}",
+        ax.plot(frequencies, response(frequencies), label=f"{channel_labels[channel_id]}",
                  lw=2.)
-        axs[0].set_title("Deep antennas", size=32)
+        ax.text(0.95, 0.95, "Preliminary", transform=ax.transAxes, ha="right", va="top",
+                color="red",
+                fontsize=42,
+                bbox=dict(boxstyle="round",
+                          facecolor="white",
+                          edgecolor="red"))
 
-    for channel_id in channel_ids_right:
-        response = system_response_time.get_response(channel_id=channel_id)
-
-        axs[1].plot(frequencies, response(frequencies), label=f"System response {channel_labels[channel_id]}",
-                 lw=2.)
-        axs[1].set_title("Surface antennas", size=32)
-
-    for ax in axs:
-        ax.minorticks_on()
-        ax.grid(which="minor", alpha=0.2, ls="dashed")
-        ax.legend(loc=8, fontsize=26)
-        ax.set_xlabel("freq / GHz", size=32)
-        ax.set_xlim(0, 1.)
-        ax.tick_params(axis="both", which="major", labelsize=32)
-    axs[0].set_ylabel("normalized spectral amplitude / a.u.", size=32)
+    ax.minorticks_on()
+    ax.grid(which="minor", alpha=0.2, ls="dashed")
+    ax.legend(loc=8, fontsize=32)
+    ax.set_xlabel("freq / GHz", size=32)
+    ax.set_xlim(0, 1.)
+    ax.tick_params(axis="both", which="major", labelsize=32)
+    ax.set_ylabel("Spectral amplitude / a.u.", size=32)
+#    fig.suptitle("Normalized system response", size=32)
     fig.tight_layout()
     fig.savefig("figures/POS_ICRC/lab_measured_system_response.pdf", bbox_inches="tight")

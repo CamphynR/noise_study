@@ -58,7 +58,8 @@ if __name__ == "__main__":
     result_dictionary["var_frequency_spectrum"] = var_frequency_spectrum_prev
     print(begin_time_prev)
     print(end_time_prev)
-    result_dictionary["header"]["nr_events"] = nr_events
+    print(nr_events_prev)
+    result_dictionary["header"]["nr_events"] = nr_events_prev
     result_dictionary["header"]["begin_time"] = begin_time_prev
     result_dictionary["header"]["end_time"] = end_time_prev
 

@@ -67,7 +67,8 @@ def create_thermal_noise_events(nr_events, station_id, detector,
                                 include_sum = True,
                                 electronic_temperature=80*units.kelvin,
                                 passband = None,
-                                padding_length=8192):
+                                padding_length=8192,
+                                debug=False):
     # electronic noise temperature, refer to eric's POS for this (PoS(ICRC2023)1171)
 
     # detector and trace parameters
@@ -91,7 +92,8 @@ def create_thermal_noise_events(nr_events, station_id, detector,
                              filter_type="rectangular")
 
     thermal_noise_adder = channelThermalNoiseAdder()
-    thermal_noise_adder.begin(sim_library_dir=config["sim_library_dir"])
+    thermal_noise_adder.begin(sim_library_dir=config["sim_library_dir"],
+                              debug=debug)
 
     generic_noise_adder = channelGenericNoiseAdder()
     generic_noise_adder.begin()
@@ -107,14 +109,22 @@ def create_thermal_noise_events(nr_events, station_id, detector,
 #    hardware_response.begin()
 
     system_response = systemResonseTimeDomainIncorporator()
+    if config["season"] == 2023:
+        response_path = "sim/library/deep_impulse_responses.json"
+    elif config["season"] == 2024:
+        response_path = ["sim/library/v2_v3_deep_impulse_responses.json", "sim/library/v2_v3_surface_impulse_responses.json"]
+    else:
+        raise KeyError(f"config['season'] is not a recognized season.")
+
     system_response.begin(det=detector,
-#                          response_path="sim/library/deep_impulse_responses.json"
-                          response_path=["sim/library/v2_v3_deep_impulse_responses.json", "sim/library/v2_v3_surface_impulse_responses.json"]
+                          response_path=response_path
                           )
 
 
     events = []
     for _ in range(nr_events):
+        if debug:
+            print(f"on event {_}")
         nr_event_types = len(noise_sources)
         if include_sum:
             nr_event_types += 1
@@ -231,8 +241,8 @@ if __name__ == "__main__":
 #            if det_dict["channels"][key]["channel_id"] in channel_types["LPDA"]:
 #                det_dict["channels"][key]["ant_type"] = antenna_models["LPDA"]
 
-    json_filename_new = f"/user/rcamphyn/software/NuRadioMC/NuRadioReco/detector/RNO_G/RNO_season_{config['season']}.json"
-#    json_filename_new = f"/user/rcamphyn/software/NuRadioMC/NuRadioReco/detector/RNO_G/RNO_season_{config['season']}_mod_antenna.json"
+#    json_filename_new = f"/user/rcamphyn/software/NuRadioMC/NuRadioReco/detector/RNO_G/RNO_season_{config['season']}.json"
+    json_filename_new = f"/user/rcamphyn/software/NuRadioMC/NuRadioReco/detector/RNO_G/RNO_season_{config['season']}_mod_antenna.json"
 
 #    with open(json_filename_new, "w") as json_file:
 #        json.dump(det_dict, json_file)
@@ -265,14 +275,15 @@ if __name__ == "__main__":
 
     event_writer = eventWriter()
 
-    def events_process(batch_i):
+    def events_process(batch_i, debug=False):
 
         events = create_thermal_noise_events(events_per_batch, args.station, detector, config,
                                              choose_channels = channels_to_include,
                                              include_det_signal_chain=config["include_det_signal_chain"],
                                              noise_sources=noise_sources, include_sum=include_sum,
                                              electronic_temperature=electronic_temperature,
-                                             passband=[10 * units.MHz, 1600 * units.MHz]
+                                             passband=[10 * units.MHz, 1600 * units.MHz],
+                                             debug=debug
                                              )
 
 
@@ -316,18 +327,18 @@ if __name__ == "__main__":
 
     if args.debug:
         nr_batches = 1
-        events_per_batch = 20
+        events_per_batch = 1
         noise_sources = ["ice"]
-        events = events_process(0)
+        events = events_process(0, debug=args.debug)
 
         labels = ["ice"]
 #        labels = ["ice", "electronic", "galactic", "sum"]
-        fig, ax = plt.subplots()
+        fig, ax = plt.subplots(figsize=(20,10))
         freq_spectra = []
 
         for i, event in enumerate(events[0]):
             station = event.get_station()
-            channel = station.get_channel(13)
+            channel = station.get_channel(0)
             nr_samples = channel.get_number_of_samples()
             sampling_rate = channel.get_sampling_rate()
             frequencies = np.fft.rfftfreq(nr_samples, d = 1./sampling_rate)

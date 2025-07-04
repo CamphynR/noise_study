@@ -70,7 +70,7 @@ class channelThermalNoiseAdder:
 
 
 
-    def begin(self, sim_library_dir, nr_phi_bins=8):
+    def begin(self, sim_library_dir, nr_phi_bins=64, debug=False):
         """
         Set up important parameters for the module
 
@@ -108,6 +108,9 @@ class channelThermalNoiseAdder:
         for i in [12, 13, 14, 15, 16, 17, 18, 19, 20]:
             self.channel_depths[i] = -1.0
 
+        self.debug = debug
+        if self.debug:
+            nr_phi_bins = 16
         self.phis = np.linspace(0 * units.degree, 360 * units.degree, nr_phi_bins)
         return
 
@@ -171,7 +174,7 @@ class channelThermalNoiseAdder:
         d_thetas = np.diff(self.thetas)
         d_phis = np.diff(self.phis)
 #        d_phi = 2 * np.pi
-        for d_phi in d_phis:
+        for phi, d_phi in zip(self.phis, d_phis):
             for theta_i, (theta, d_theta) in enumerate(zip(self.thetas, d_thetas)):
                 solid_angle = self.solid_angle(theta, d_theta, d_phi)
 
@@ -195,17 +198,25 @@ class channelThermalNoiseAdder:
                                 units.coulomb / units.V / units.m))) / d_f
 
                     # assign random phases to electric field
-                    phases = np.random.uniform(0, 2. * np.pi, len(spectral_radiance))
+                    if self.debug:
+                        phases = 0 * np.ones(len(spectral_radiance))
+                    else:
+                        phases = np.random.uniform(0, 2. * np.pi, len(spectral_radiance))
 
                     noise_spectrum[1][passband_filter] = np.exp(1j * phases) * efield_amplitude
                     noise_spectrum[2][passband_filter] = np.exp(1j * phases) * efield_amplitude
 
                     antenna_pattern = self.__antenna_pattern_provider.load_antenna_pattern(
-                        detector.get_antenna_model(station.get_id(), channel.get_id()))
+                        detector.get_antenna_model(station.get_id(), channel.get_id()),
+#                        interpolation_method="magphase"
+                        )
                     antenna_orientation = detector.get_antenna_orientation(station.get_id(), channel.get_id())
 
                     # add random polarizations and phase to electric field
-                    polarizations = np.random.uniform(0, 2. * np.pi, len(spectral_radiance))
+                    if self.debug:
+                        polarizations = [0.] * len(spectral_radiance)
+                    else:
+                        polarizations = np.random.uniform(0, 2. * np.pi, len(spectral_radiance))
 
                     channel_noise_spec[1][passband_filter] = noise_spectrum[1][passband_filter] * np.cos(polarizations)
                     channel_noise_spec[2][passband_filter] = noise_spectrum[2][passband_filter] * np.sin(polarizations)
@@ -214,7 +225,7 @@ class channelThermalNoiseAdder:
     #                antenna_response = antenna_pattern.get_antenna_response_vectorized(freqs, zenith, azimuth,
     #                                                                                   *antenna_orientation)
 
-                    antenna_response = self.get_cached_antenna_response(antenna_pattern, theta, 0,
+                    antenna_response = self.get_cached_antenna_response(antenna_pattern, theta, phi,
                                                                         *antenna_orientation)
                     channel_noise_spectrum = (
                         antenna_response['theta'] * channel_noise_spec[1]
@@ -245,7 +256,7 @@ if __name__ == "__main__":
 
     detector = Detector(database_connection='RNOG_public', log_level=logging.NOTSET,
                         select_stations=station_id)
-    detector_time = datetime.datetime(2022, 8, 1)
+    detector_time = datetime.datetime(2023, 8, 1)
     detector.update(detector_time)
 
     event = Event(run_number=-1, event_id=-1)
@@ -258,7 +269,7 @@ if __name__ == "__main__":
     event.set_station(station)
 
     thermal_noise_adder = channelThermalNoiseAdder()
-    thermal_noise_adder.begin()
+    thermal_noise_adder.begin(sim_library_dir="sim/library")
     thermal_noise_adder.run(event, station, detector)
 
     station = event.get_station()
@@ -268,3 +279,4 @@ if __name__ == "__main__":
 
     plt.plot(channel.get_frequencies(), np.abs(channel.get_frequency_spectrum()))
     plt.show()
+    plt.savefig("test_thermal_noise")

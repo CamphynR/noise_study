@@ -86,16 +86,21 @@ class spectrumFitter:
                 m.hesse()
                 fit_results.append(m.params)
             elif mode == "electronic_temp":
-                m = Minuit(cost_function, gain=1000., el_ampl=0., el_ampl_lin=1., f0=0.15)
+                m = Minuit(cost_function, gain=1000., el_ampl=0., el_cst=1., f0=0.15)
                 m.fixed["gain"] = False
                 m.fixed["el_ampl"] = True
-                m.fixed["el_ampl_lin"] = True
+                m.fixed["el_cst"] = True
                 m.fixed["f0"] = True
                 m.limits = [(0., None), (0., None), (0., None), (0., 0.6)]
                 m.migrad()
                 m.fixed["gain"] = True
                 m.fixed["el_ampl"] = False
-                m.fixed["el_ampl_lin"] = False
+                m.fixed["el_cst"] = False
+                m.fixed["f0"] = True
+                m.migrad()
+                m.fixed["gain"] = False
+                m.fixed["el_ampl"] = True
+                m.fixed["el_cst"] = True
                 m.fixed["f0"] = True
                 m.migrad()
                 m.hesse()
@@ -129,21 +134,13 @@ class spectrumFitter:
 
             fit_function = fit_gain_factor
         elif mode == "electronic_temp":
-#            ice_trace = freq2time(ice_spectrum, self.sampling_rate)
-#            galactic_trace = freq2time(galactic_spectrum, self.sampling_rate)
-            def fit_electronic_temp(freq, gain, el_ampl, el_ampl_lin, f0):
-#                electronic_trace = freq2time(temp*self.frequencies * electronic_spectrum, self.sampling_rate)
+            def fit_electronic_temp(freq, gain, el_ampl, el_cst, f0):
                 # Johnson-Nyquist: V² ~ T
-#                function_interp = interp1d(self.frequencies,
-#                                           gain * np.abs(time2freq((ice_trace
-#                                                           + electronic_trace
-#                                                           + galactic_trace),
-#                                            self.sampling_rate)))
 
                 ch_bandpass = channelBandPassFilter()
                 filt = ch_bandpass.get_filter(self.frequencies, station_id=-1, channel_id=-1, det=-1, passband=self.bandpass, filter_type="butter", order=10)
                 filt = np.abs(filt)
-                weight = el_ampl * (self.frequencies - f0) + el_ampl_lin
+                weight = el_ampl * (self.frequencies - f0) + el_cst
                 electronic_spectrum_fit = electronic_spectrum * weight * filt
                 function_interp = interp1d(self.frequencies,
                                            gain * (ice_spectrum 
