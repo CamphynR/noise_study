@@ -19,20 +19,50 @@ def rayleigh(spec_amplitude, sigma):
     return (spec_amplitude / sigma**2) * np.exp(-spec_amplitude**2 / (2 * sigma**2))
 
 
+def sigmoid(spec_amplitude, s, x0):
+    return 1. / (1. + np.exp(s * (spec_amplitude - x0)))
 
-def produce_rayleigh_params(bin_centers, histograms, rayleigh_function, sigma_guess = 0.01):
+def fitting_function(spec_amplitude, sigma, s, x0):
+    return rayleigh(spec_amplitude, sigma) * sigmoid(spec_amplitude, s, x0)
+
+
+
+def produce_rayleigh_params(bin_centers, histograms, sigma_guess = 0.01, debug=False, percentile=0.9999):
     params = []
     covs = []
+    trunc_edges = []
     for i, histogram in enumerate(histograms):
         # if all the bins except for the first are empty this means this is the result of a bandpass filter and fitting is unneccesary
         if np.all(histogram[1:] == 0):
+            # param = [0, 0]
+            # cov = [[0, 0], [0, 0]]
+            trunc_edge=0
             param = [0]
             cov = [[0]]
         else:
-            param, cov  = curve_fit(rayleigh_function, bin_centers, histogram, p0 = sigma_guess)
+            cdf = np.cumsum(histogram*np.diff(bin_centers)[0])
+            trunc_edge_idx = np.where(cdf > percentile)[0][0]
+            trunc_edge = bin_centers[trunc_edge_idx]
+            param, cov  = curve_fit(rayleigh, bin_centers, histogram, p0 = sigma_guess)
+            # param, cov  = curve_fit(lambda spec, sigma, s : fitting_function(spec, sigma, s, trunc_edge), bin_centers, histogram, p0 = (sigma_guess, 1e-8))
+            if debug:
+                if i== 200:
+                    plt.stairs(histogram, edges=np.r_[0., bin_centers[:-1] + np.diff(bin_centers), 0.7])
+                    # plt.plot(bin_centers, fitting_function(bin_centers, param[0], param[1], trunc_edge))
+                    plt.plot(bin_centers, rayleigh(bin_centers, param[0]))
+                    plt.vlines(trunc_edge, 0, 1)
+                    plt.xlabel("spectral amplitude / V/GHz")
+                    plt.ylabel("Counts")
+                    plt.yscale("log")
+                    plt.ylim(0.00001, None)
+                    plt.title(f"{percentile} percentile")
+                    plt.show()
+                    plt.close()
+
         params.append(param)
         covs.append(cov)
-    return np.squeeze(params), np.squeeze(covs)
+        trunc_edges.append(trunc_edge)
+    return np.squeeze(params), np.squeeze(covs), np.squeeze(trunc_edges)
 
 
 
@@ -76,14 +106,17 @@ if __name__ == "__main__":
 
     sigmas_list = []
     covs_list = []
+    trunc_edges_list = []
     for ch in range(24):
-        sigmas, covs = produce_rayleigh_params(bin_centers, spec_amplitude_histograms[ch][selection], rayleigh)
+        print(ch)
+        sigmas, covs, trunc_edges = produce_rayleigh_params(bin_centers, spec_amplitude_histograms[ch][selection], debug=args.debug)
         sigmas_list.append(sigmas)
         covs_list.append(covs)
-        break
+        trunc_edges_list.append(trunc_edges)
 
     spec_hist_dict["scale_parameters"] = sigmas_list
     spec_hist_dict["scale_parameters_cov"] = covs_list
+    spec_hist_dict["trunc_edges"] = trunc_edges_list
 
     pickle_path = args.data_path.rsplit("_", 1)[0]
     pickle_path += "_scale_params"
@@ -106,7 +139,7 @@ if __name__ == "__main__":
             covs = covs_list[i]
 
             fig, ax = plt.subplots()
-            ax.errorbar(frequencies, sigmas, yerr = covs, label = "data")
+            ax.errorbar(frequencies[selection], sigmas, yerr = covs, label = "data")
             ax.legend(loc = "best")
             ax.set_title(f"Station{station_id}, channel {i}")
             ax.set_xlabel("freq / GHz")
@@ -124,7 +157,9 @@ if __name__ == "__main__":
         for i,test_idx in enumerate(test_indices):
             histograms = spec_amplitude_histograms[channel_idx][test_idx]
             axs[i].stairs(histograms, edges=bin_edges)
-            # ax.plot(bin_centers, rayleigh(bin_centers, sigmas_list[channel_idx][test_idx]))
-            axs[i].set_title(f"freq = {frequencies[test_idx]}")
+            axs[i].plot(bin_centers, rayleigh(bin_centers, sigmas_list[channel_idx][test_idx]))
+            axs[i].set_title(f"freq = {frequencies[test_idx]:.2f} GHz")
+            axs[i].set_yscale("log")
             # ax.text(0.6, 5, f"scale param = {sigmas_list[channel_idx][test_idx]}")
+        fig.tight_layout()
         fig.savefig("test")
