@@ -37,12 +37,14 @@ def write_pickle(data, pickle_file):
     return
 
 
-def find_config(data_dir):
+def find_config(data_dir, sim=False):
     """
-    function that yields config file, assuming the config to be stored on the same level as the stationX folder.
+    function that yields config file, assuming the config to be stored in the stationX folder.
     """
-    job_folder = Path(data_dir).parents[2]
-    return str(job_folder) + "/config.json"
+    job_folder = Path(data_dir).parents[1]
+#    if sim:
+#        job_folder = Path(data_dir).parents[2]
+    return str(job_folder)+ "/" + "/config.json"
 
 
 def read_config(config_path):

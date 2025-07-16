@@ -7,8 +7,11 @@ import multiprocessing
 import numpy as np
 import os
 import pickle
+import subprocess
 
 from NuRadioReco.detector.RNO_G.rnog_detector_mod import ModDetector
+#from NuRadioReco.detector.RNO_G.rnog_detector import Detector
+from NuRadioReco.detector.detector import Detector
 from NuRadioReco.framework.event import Event
 from NuRadioReco.framework.station import Station
 from NuRadioReco.framework.channel import Channel
@@ -57,22 +60,28 @@ def get_traces_from_event(event):
 
 
 def create_thermal_noise_events(nr_events, station_id, detector,
+                                config,
                                 choose_channels=None,
                                 include_det_signal_chain=True,
                                 noise_sources=["ice", "electronic", "galactic"],
                                 include_sum = True,
                                 electronic_temperature=80*units.kelvin,
                                 passband = None,
-                                padding_length=8192):
+                                padding_length=8192,
+                                use_s_param_hardware=False,
+                                debug=False):
     # electronic noise temperature, refer to eric's POS for this (PoS(ICRC2023)1171)
 
     # detector and trace parameters
     station_info = detector.get_station(station_id)
-    channel_ids = sorted([int(c) for c in station_info["channels"].keys()])
+#    channel_ids = sorted([int(c) for c in station_info["channels"].keys()])
+    channel_ids = np.arange(24)
     if choose_channels is not None:
         channel_ids = choose_channels 
-    nr_samples = station_info["number_of_samples"]
-    sampling_rate = station_info["sampling_rate"]
+#    nr_samples = station_info["number_of_samples"]
+#    sampling_rate = station_info["sampling_rate"]
+    nr_samples = detector.get_number_of_samples(station_id, 0)
+    sampling_rate = detector.get_sampling_frequency(station_id, 0)
     frequencies = np.fft.rfftfreq(nr_samples, d=1./sampling_rate)
 
 
@@ -84,7 +93,8 @@ def create_thermal_noise_events(nr_events, station_id, detector,
                              filter_type="rectangular")
 
     thermal_noise_adder = channelThermalNoiseAdder()
-    thermal_noise_adder.begin()
+    thermal_noise_adder.begin(sim_library_dir=config["sim_library_dir"],
+                              debug=debug)
 
     generic_noise_adder = channelGenericNoiseAdder()
     generic_noise_adder.begin()
@@ -92,19 +102,29 @@ def create_thermal_noise_events(nr_events, station_id, detector,
     galactic_noise_adder = channelGalacticNoiseAdder()
     galactic_noise_adder.begin(freq_range=[min_freq, max_freq],
                                caching=True)
-    # galactic_noise_adder = channelGalacticSunNoiseAdder()
-    # galactic_noise_adder.begin(freq_range=[min_freq, max_freq],
-    #                           caching=True)
 
-    hardware_response = hardwareResponseIncorporator()
-    hardware_response.begin()
+    if use_s_param_hardware:
+        hardware_response = hardwareResponseIncorporator()
+        hardware_response.begin()
 
-    system_response = systemResonseTimeDomainIncorporator()
-    system_response.begin(response_path="sim/library/deep_impulse_responses.json", det=detector)
+    else:
+        system_response = systemResonseTimeDomainIncorporator()
+        if config["season"] == 2023:
+            response_path = "sim/library/deep_impulse_responses.json"
+        elif config["season"] == 2024:
+            response_path = ["sim/library/v2_v3_deep_impulse_responses.json", "sim/library/v2_v3_surface_impulse_responses.json"]
+        else:
+            raise KeyError(f"config['season'] is not a recognized season.")
+
+        system_response.begin(det=detector,
+                              response_path=response_path
+                              )
 
 
     events = []
     for _ in range(nr_events):
+        if debug:
+            print(f"on event {_}")
         nr_event_types = len(noise_sources)
         if include_sum:
             nr_event_types += 1
@@ -147,8 +167,10 @@ def create_thermal_noise_events(nr_events, station_id, detector,
         if include_det_signal_chain:
             for event in event_types:
                 station = event.get_station()
-#                hardware_response.run(event, station, det=detector, sim_to_data=True)
-                system_response.run(event, station, detector)
+                if use_s_param_hardware:
+                    hardware_response.run(event, station, det=detector, sim_to_data=True)
+                else:
+                    system_response.run(event, station, detector)
         events.append(event_types)
     
     events = np.array(events)
@@ -162,57 +184,93 @@ if __name__ == "__main__":
     parser.add_argument("--station", "-s", default=23, type=int)
     parser.add_argument("--config", default="sim/thermal_noise/config_efields.json")
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--batch_i", default=None)
     args = parser.parse_args()
 
     config = read_config(args.config)
 
-    save_dir = f"{config['save_dir']}/simulations/thermal_noise_traces" 
+    if not args.debug:
+        save_dir = f"/tmp/simulations/thermal_noise_traces"
+    else:
+        save_dir = f"/user/rcamphyn/tmp/simulations/thermal_noise_traces"
     date = datetime.datetime.now().strftime("%Y_%m_%d_%H")
     save_dir +=f"/job_{date}"
     if args.debug:
         save_dir += "_test"
-    # save to stdout to use as path in pipeline
-    print(save_dir)
+    if config["use_s_param_hardware_response"]:
+        save_dir += "s_param_hardware_response"
+
     create_nested_dir(save_dir)
     settings_dict = {**config, **vars(args)}
-    config_file = f"{save_dir}/config_efields.json"
-    if os.path.exists(config_file):
-        logging.warning("overwriting config file")
-        os.remove(config_file)
-    with open(config_file, "w") as f:
-        json.dump(settings_dict, f)
+    config_file = f"{save_dir}/station{args.station}/config_efields.json"
+    os.makedirs(f"{save_dir}/station{args.station}", exist_ok=True)
+    if not os.path.exists(config_file):
+        with open(config_file, "w") as f:
+            json.dump(settings_dict, f)
     
     if args.debug:
-        log_level = logging.DEBUG
+        log_level = logging.WARNING
     else:
         log_level = logging.CRITICAL
     
-    logging.getLogger().setLevel(log_level)
+    logger = logging.getLogger("NuRadioReco")
+    logger.setLevel(log_level)
 
     station_id = args.station
     channels_to_include = config["channels_to_include"]
 
 
     channel_types = {"VPol" : [0, 1, 2, 3, 5, 6, 7, 9, 10, 22, 23],
-                     "HPol" : [4, 8, 11, 21]}
+                     "HPol" : [4, 8, 11, 21],
+                     "LPDA" : [12, 13, 14, 15, 16, 17, 18, 19, 20]}
     antenna_models = {"VPol" : "RNOG_vpol_v3_5inch_center_n1.74",
-                      "HPol" : "RNOG_hpol_v4_8inch_center_n1.74"}
+                      "HPol" : "RNOG_hpol_v4_8inch_center_n1.74",
+                      "LPDA" : "createLPDA_100MHz_InfFirn_n1.4"}
 
-    logging.debug("querying detector")
-    detector_time = datetime.datetime(2023, 8, 1)
-    detector = ModDetector(database_connection='RNOG_public', log_level=log_level,
-                           select_stations=station_id)#, database_time=detector_time)
+    logger.debug("querying detector")
+    detector_time = datetime.datetime(config["season"], 8, 1)
+
+#    detector = ModDetector(log_level=log_level,
+#                           select_stations=station_id,
+#                            )
+#                           database_time=detector_time)
+
+#    json_filename = f"/user/rcamphyn/software/NuRadioMC/NuRadioReco/detector/RNO_G/RNO_season_{config['season']}.json"
+#    with open(json_filename, "r") as json_file:
+#        det_dict = json.load(json_file)
+#        for key in det_dict["channels"].keys():
+#            if det_dict["channels"][key]["channel_id"] in channel_types["VPol"]:
+#                det_dict["channels"][key]["ant_type"] = antenna_models["VPol"]
+#            if det_dict["channels"][key]["channel_id"] in channel_types["HPol"]:
+#                det_dict["channels"][key]["ant_type"] = antenna_models["HPol"]
+#            if det_dict["channels"][key]["channel_id"] in channel_types["LPDA"]:
+#                det_dict["channels"][key]["ant_type"] = antenna_models["LPDA"]
+
+#    json_filename_new = f"/user/rcamphyn/software/NuRadioMC/NuRadioReco/detector/RNO_G/RNO_season_{config['season']}.json"
+    json_filename_new = f"/user/rcamphyn/software/NuRadioMC/NuRadioReco/detector/RNO_G/RNO_season_{config['season']}_mod_antenna.json"
+
+#    with open(json_filename_new, "w") as json_file:
+#        json.dump(det_dict, json_file)
+#
+#    with open(json_filename_new, "r") as json_file:
+#        tmpdict=json.load(json_file)
+#        for i in range(10000):
+#            if tmpdict["channels"][str(i)]["ant_type"] == "rnog_vpol_4inch_center_n1.73":
+#                print(i)
+
+
+    detector = Detector(json_filename=json_filename_new, source="json")
     detector.update(detector_time)
-    logging.debug("done querying detector")
+    logger.debug("done querying detector")
 
-    for channel_id in channels_to_include:
-        if channel_id in channel_types["VPol"]:
-            antenna_model = antenna_models["VPol"]
-            detector.modify_channel_description(station_id, channel_id, ["signal_chain","VEL"], antenna_model)
-
-        elif channel_id in channel_types["HPol"]:
-            antenna_model = antenna_models["HPol"]
-            detector.modify_channel_description(station_id, channel_id, ["signal_chain","VEL"], antenna_model)
+#    for channel_id in channels_to_include:
+#        if channel_id in channel_types["VPol"]:
+#            antenna_model = antenna_models["VPol"]
+#            detector.modify_channel_description(station_id, channel_id, ["signal_chain","VEL"], antenna_model)
+#
+#        elif channel_id in channel_types["HPol"]:
+#            antenna_model = antenna_models["HPol"]
+#            detector.modify_channel_description(station_id, channel_id, ["signal_chain","VEL"], antenna_model)
 
 
 
@@ -222,22 +280,25 @@ if __name__ == "__main__":
 
     event_writer = eventWriter()
 
-    def events_process(batch):
+    def events_process(batch_i, debug=False):
 
-        events = create_thermal_noise_events(events_per_batch, args.station, detector,
+        events = create_thermal_noise_events(events_per_batch, args.station, detector, config,
                                              choose_channels = channels_to_include,
                                              include_det_signal_chain=config["include_det_signal_chain"],
                                              noise_sources=noise_sources, include_sum=include_sum,
                                              electronic_temperature=electronic_temperature,
-                                             passband=[10 * units.MHz, 1600 * units.MHz]
+                                             passband=[10 * units.MHz, 1600 * units.MHz],
+                                             use_s_param_hardware=config["use_s_param_hardware_response"],
+                                             debug=debug
                                              )
 
-        batch_dir = f"station{args.station}" + "/" + f"run{batch}"
+
+        batch_dir = f"station{args.station}" + "/" + f"run{batch_i}"
         os.makedirs(save_dir + "/" + batch_dir, exist_ok=True)
 
-        filenames = [f"events_{noise_source}_batch{batch}" for noise_source in noise_sources]
+        filenames = [f"events_{noise_source}_batch{batch_i}" for noise_source in noise_sources]
         if include_sum:
-            filename = f"events_batch{batch}"
+            filename = f"events_batch{batch_i}"
             filenames.append(filename)
 
         for i, filename in enumerate(filenames):
@@ -245,48 +306,50 @@ if __name__ == "__main__":
             event_writer.begin(filename=savename)
             for event in events[i]:
                 event_writer.run(event)
+        dest_dir = f"{config['save_dir']}/simulations/thermal_noise_traces" 
+
+        # save to stdout to use as path in pipeline
+        print(dest_dir + os.path.basename(save_dir))
+        subprocess.call(["rsync", "-vuar", save_dir, dest_dir], stdout=subprocess.DEVNULL)
+        
+
         if not args.debug:
             del events
         else:
             return events
 
     if not args.debug:
-        nr_batches = 5
-        events_per_batch = 200
-        with multiprocessing.Pool() as p:
-            p.map(events_process, range(nr_batches))
+        if args.batch_i is None:
+            nr_batches = 10
+            events_per_batch = 200
+            with multiprocessing.Pool() as p:
+                p.map(events_process, range(nr_batches))
+        else:
+            events_per_batch = 200
+            events_process(args.batch_i)
 
 
 
 
     if args.debug:
         nr_batches = 1
-        events_per_batch = 50
-        events = events_process(0)
+        events_per_batch = 1
+        noise_sources = ["ice"]
+        events = events_process(0, debug=args.debug)
 
-        labels = ["ice", "electronic", "galactic", "sum"]
-        fig, ax = plt.subplots()
+        labels = ["ice"]
+#        labels = ["ice", "electronic", "galactic", "sum"]
+        fig, ax = plt.subplots(figsize=(20,10))
         freq_spectra = []
-        # for i, event in enumerate(events):
-        #     event = event[0]
-        #     station = event.get_station()
-        #     channel = station.get_channel(0)
-        #     nr_samples = channel.get_number_of_samples()
-        #     sampling_rate = channel.get_sampling_rate()
-        #     frequencies = np.fft.rfftfreq(nr_samples, d = 1./sampling_rate)
-        #     frequency_spectrum = channel.get_frequency_spectrum()
-        #     freq_spectra.append(frequency_spectrum)
 
-        for i, event_type in enumerate(events):
-            if i ==3:
-                for event in event_type:
-                    station = event.get_station()
-                    channel = station.get_channel(0)
-                    nr_samples = channel.get_number_of_samples()
-                    sampling_rate = channel.get_sampling_rate()
-                    frequencies = np.fft.rfftfreq(nr_samples, d = 1./sampling_rate)
-                    frequency_spectrum = channel.get_frequency_spectrum()
-                    freq_spectra.append(frequency_spectrum)
+        for i, event in enumerate(events[0]):
+            station = event.get_station()
+            channel = station.get_channel(0)
+            nr_samples = channel.get_number_of_samples()
+            sampling_rate = channel.get_sampling_rate()
+            frequencies = np.fft.rfftfreq(nr_samples, d = 1./sampling_rate)
+            frequency_spectrum = channel.get_frequency_spectrum()
+            freq_spectra.append(frequency_spectrum)
         frequency_spectrum_mean = np.mean(np.abs(freq_spectra), axis=0)
 
         ax.plot(frequencies, frequency_spectrum_mean)

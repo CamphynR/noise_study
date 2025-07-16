@@ -1,10 +1,14 @@
 {
-    "save_dir" : "/home/ruben/Documents/data/noise_study",
+    "save_dir" : "/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study",
+    "sim_library_dir" : "/user/rcamphyn/noise_study/sim/library",
     "include_det_signal_chain" : 1,
 
-    "channels_to_include" : [0, 4, 7, 12, 13],
+    "season" : 2023,
+
+    "channels_to_include" : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
     "noise_sources" : ["ice", "electronic", "galactic"],
-    "include_sum" : 1,
-    "electronic_temperature" : 80
+    "include_sum" : 0,
+    "electronic_temperature" : 80,
+    "use_s_param_hardware_response" : 0
 
 }

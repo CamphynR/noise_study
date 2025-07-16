@@ -220,7 +220,7 @@ if __name__ == "__main__":
         save_dir += "_no_det"
     create_nested_dir(save_dir)
     settings_dict = {**config, **vars(args)}
-    config_file = f"{save_dir}/config_voltages.json"
+    config_file = f"{save_dir}/station{args.station}/config_voltages.json"
     with open(config_file, "w") as f:
         json.dump(settings_dict, f)
 

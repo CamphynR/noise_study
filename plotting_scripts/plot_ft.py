@@ -19,6 +19,7 @@ def read_freq_spectrum_from_nur(files : list, event_nr=0, channel_id=0):
         event = event_tmp
         break
     station = event.get_station()
+    print(station.get_station_time())
     channel = station.get_channel(channel_id)
     sampling_rate = channel.get_sampling_rate()
     nr_samples = channel.get_number_of_samples()
@@ -47,8 +48,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if args.data_dir == None:
-        files = glob.glob("/home/ruben/Documents/data/noise_study/simulations/thermal_noise_traces/job_2025_02_19_16/station23/run**/events_batch*.nur", recursive=True)
-        print(files)
+        files = "/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/data/spectra/complete_spectra_sets/season2023/station23/clean/spectra_batch32.nur"
+#        files = glob.glob("/home/ruben/Documents/data/noise_study/simulations/thermal_noise_traces/job_2025_02_19_16/station23/run**/events_batch*.nur", recursive=True)
     else:
         root_dir = glob.glob(f"{args.data_dir}/station{args.station}/run{args.run}")
 
@@ -77,6 +78,7 @@ if __name__ == '__main__':
 #        trace_notched = signal.filtfilt(notch[0], notch[1], trace_notched)
 #    ft_notched = fft.time2freq(trace_notched, fs)
 
+    plt.style.use("gaudi")
     plt.plot(freqs, np.abs(ft), label = "frequency spectrum")
 #    plt.plot(freq/1e9, np.abs(ft_notched), label = "notched")
 #    plt.vlines(0.2, 0, 5e-7, color = "r", ls = "dashed", label = "200 MHz")
@@ -86,4 +88,4 @@ if __name__ == '__main__':
     plt.xlabel("freq / GHz")
     plt.ylabel("amplitude / V/GHz")
     fig_path = os.path.abspath(f"{__file__}/../../figures")
-    plt.savefig(f"{fig_path}/fft")
+    plt.savefig(f"{fig_path}/tests/fft.png")

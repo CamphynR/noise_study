@@ -70,6 +70,7 @@ def produce_rayleigh_params(bin_centers, histograms, sigma_guess = 0.01, debug=F
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_path")
+    parser.add_argument("--comparison_paths", default=None, help="Other spectral histograms to compare distributions, optional", nargs="+")
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
 
@@ -153,7 +154,7 @@ if __name__ == "__main__":
 
         channel_idx = 0
         test_indices = [100, 200, 300, 400, 500]
-        fig, axs = plt.subplots(len(test_indices), 1, figsize = (12, 8))
+        fig, axs = plt.subplots(len(test_indices), 1, figsize = (12, 16))
         for i,test_idx in enumerate(test_indices):
             histograms = spec_amplitude_histograms[channel_idx][test_idx]
             axs[i].stairs(histograms, edges=bin_edges)

@@ -21,7 +21,7 @@ if __name__ == "__main__":
                         type = int,
                         default = 24)
     parser.add_argument("-r", "--run",
-                        default = None)
+                        default = 1920)
     
     parser.add_argument("--config", help = "path to config.json file", default = "config.json")
     
@@ -55,13 +55,13 @@ if __name__ == "__main__":
         run_time_range = config["run_time_range"]
 
     # pure mattak
-    mattak_ds = mattak.Dataset.Dataset(station=13, run=10, data_path= data_dir, backend="pyroot")
+    mattak_ds = mattak.Dataset.Dataset(station=args.station, run=args.run, data_path= data_dir, backend="uproot")
     mattak_ds.setEntries(9)
     mattak_wfs = mattak_ds.wfs(calibrated=True)   
     print(mattak_wfs.shape)
 
     # NuRadio
-    mattak_kw = dict(backend = "pyroot", read_daq_status = False)
+    mattak_kw = dict(backend = "uproot", read_daq_status = False)
     rnog_reader.begin(root_dirs,
                       selectors=selectors,
                       read_calibrated_data=True,

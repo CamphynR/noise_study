@@ -23,3 +23,5 @@ RNO-G_noise_study.code-workspace
 testing
 *.h5
 */*.h5
+*.log
+*.csv

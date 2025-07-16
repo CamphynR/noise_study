@@ -139,6 +139,11 @@ if __name__ == "__main__":
                             run_time_range=run_time_range,
                             max_trigger_rate=config["max_trigger_rate"] * units.Hz,
                             mattak_kwargs=mattak_kw)
+            for event in rnog_reader.run():
+                station = event.get_station(args.station)
+                channel = station.get_channel(0)
+                trace = channel.get_trace()
+                break
 
             runs = [dic["run"] for dic in rnog_reader.get_events_information("run").values()]
             runs = np.unique(runs)

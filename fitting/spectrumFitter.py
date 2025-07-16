@@ -5,6 +5,7 @@ from iminuit.cost import LeastSquares
 import numpy as np
 from scipy.interpolate import interp1d
 
+from NuRadioReco.modules.channelBandPassFilter import channelBandPassFilter
 from NuRadioReco.modules.io.NuRadioRecoio import NuRadioRecoio
 from NuRadioReco.utilities import units
 from NuRadioReco.utilities.fft import freq2time, time2freq
@@ -24,13 +25,13 @@ def read_freq_spec_file(path):
 
 class spectrumFitter:
     def __init__(self, data_path, sim_paths,
-                 fit_range=[0.2, 0.5]):
+                 fit_range=[0.15, 0.6], bandpass=None):
         """
         sim_paths : list
             list of all simulation components, without the sum
             the order is assumed to be ice, electronic, galactic, rest
         """
-        config_path = find_config(sim_paths[0])
+        config_path = find_config(sim_paths[0], sim=True)
         self.config = read_config(config_path)
         
         self.channels_to_include = self.config["channels_to_include"]
@@ -55,27 +56,56 @@ class spectrumFitter:
         self.fit_idxs = np.where(np.logical_and(fit_range[0] < self.frequencies,
                                                 self.frequencies < fit_range[1]))
 
+        self.bandpass = bandpass
+        if self.bandpass is None:
+            self.bandpass = [0.1, 0.7]
+
         return
 
-    def get_fit_gain(self, mode="constant"):
+    def get_fit_gain(self, mode="constant", choose_channels=None):
+        if choose_channels is None:
+            channel_ids = self.channels_to_include
+        else:
+            channel_ids = choose_channels
+
 
         fit_results = []
-        for channel_id in self.channels_to_include:
+        for channel_id in channel_ids:
             fit_function = self.select_fit_function(mode, channel_id)
-
             x_data = self.frequencies[self.fit_idxs]
             y_data = self.data_spectrum[channel_id][self.fit_idxs]
             y_err = self.var_data_spectrum[channel_id][self.fit_idxs]
-
             cost_function = LeastSquares(x=x_data, y=y_data,
                                          yerror=y_err,
                                          model=fit_function)
 
-            m = Minuit(cost_function, gain=1000000., temp=80)
-            m.limits = [(10, None), (0, 10)]
-            m.migrad()
-            m.hesse()
-            fit_results.append(m.params)
+            if mode == "constant":
+                m = Minuit(cost_function, gain=1000.)
+                m.limits = [(10, None)]
+                m.migrad()
+                m.hesse()
+                fit_results.append(m.params)
+            elif mode == "electronic_temp":
+                m = Minuit(cost_function, gain=1000., el_ampl=0., el_cst=1., f0=0.15)
+                m.fixed["gain"] = False
+                m.fixed["el_ampl"] = True
+                m.fixed["el_cst"] = True
+                m.fixed["f0"] = True
+                m.limits = [(0., None), (0., None), (0., None), (0., 0.6)]
+                m.migrad()
+                m.fixed["gain"] = True
+                m.fixed["el_ampl"] = False
+                m.fixed["el_cst"] = False
+                m.fixed["f0"] = True
+                m.migrad()
+                m.fixed["gain"] = False
+                m.fixed["el_ampl"] = True
+                m.fixed["el_cst"] = True
+                m.fixed["f0"] = True
+                m.migrad()
+                m.hesse()
+                fit_results.append(m.params)
+
 
         return fit_results
 
@@ -88,12 +118,12 @@ class spectrumFitter:
 
     def select_fit_function(self, mode, channel_id):
         ice_spectrum = self.sim_spectra[0][channel_id]
-        ice_trace = freq2time(ice_spectrum, self.sampling_rate)
         electronic_spectrum = self.sim_spectra[1][channel_id]
-        electronic_trace = freq2time(electronic_spectrum, self.sampling_rate)
         galactic_spectrum = self.sim_spectra[2][channel_id]
-        galactic_trace = freq2time(galactic_spectrum, self.sampling_rate)
         if mode == "constant":
+            ice_trace = freq2time(ice_spectrum, self.sampling_rate)
+            electronic_trace = freq2time(electronic_spectrum, self.sampling_rate)
+            galactic_trace = freq2time(galactic_spectrum, self.sampling_rate)
             def fit_gain_factor(freq, gain):
                 function_interp = interp1d(self.frequencies,
                                            gain * time2freq((ice_trace
@@ -104,13 +134,18 @@ class spectrumFitter:
 
             fit_function = fit_gain_factor
         elif mode == "electronic_temp":
-            def fit_electronic_temp(freq, gain, temp):
-                # Johnosn-Nyquist: V² ~ T
+            def fit_electronic_temp(freq, gain, el_ampl, el_cst, f0):
+                # Johnson-Nyquist: V² ~ T
+
+                ch_bandpass = channelBandPassFilter()
+                filt = ch_bandpass.get_filter(self.frequencies, station_id=-1, channel_id=-1, det=-1, passband=self.bandpass, filter_type="butter", order=10)
+                filt = np.abs(filt)
+                weight = el_ampl * (self.frequencies - f0) + el_cst
+                electronic_spectrum_fit = electronic_spectrum * weight * filt
                 function_interp = interp1d(self.frequencies,
-                                           gain * time2freq((ice_trace
-                                                           + temp * electronic_trace
-                                                           + galactic_trace),
-                                            self.sampling_rate))
+                                           gain * (ice_spectrum 
+                                                   + electronic_spectrum_fit
+                                                   + galactic_spectrum) * filt)
                 
                 
                 return function_interp(freq)

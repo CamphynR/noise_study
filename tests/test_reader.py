@@ -33,7 +33,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     logger = logging.getLogger(__name__)
-    log_level = logging.DEBUG
+    log_level = logging.WARNING
     logging.basicConfig(level = log_level)
 
 
@@ -66,7 +66,7 @@ if __name__ == "__main__":
 
 
     calibration = "linear"
-    mattak_kw = dict(backend="pyroot", read_daq_status=False, read_run_info=False, cache_calibration=False)
+    mattak_kw = dict(backend="uproot", read_daq_status=False, read_run_info=False, cache_calibration=False)
 
     # note if no runtable provided, runtable is queried from the database
     rnog_reader = dataProviderRNOG()
@@ -78,28 +78,46 @@ if __name__ == "__main__":
                         apply_baseline_correction="approximate",
                         convert_to_voltage=calibration == "linear",
                         selectors = selectors,
-                        mattak_kwargs=mattak_kw),
-                        det=det)
+                        mattak_kwargs=mattak_kw,
+                        max_trigger_rate=2 * units.Hz
+                        ),
+                        det=det,)
 
     sine_subtraction = channelSinewaveSubtraction()
-    sine_subtraction.begin()
+    sine_subtraction.begin(save_filtered_freqs=True)
+    sine_sub_kw = {
+            "algorithm" : "simple",
+            "peak_prominence" : 4}
 
+    plt.style.use("gaudi")
+    channel_id = 13
     for event in rnog_reader.run():
         print(event.get_id())
-        station = event.get_station()
-        sine_subtraction.run(event, station, det)
-        station = event.get_station()
-        channel = station.get_channel(0)
-        freq = channel.get_frequencies()
-        ft = channel.get_frequency_spectrum()
-        plt.plot(freq, np.abs(ft))
-        plt.savefig("test_ft")
-        plt.close()
+#        if event.get_id() == 132:
+#        if event.get_id() == 12:
+        if event.get_id() == 1288:
+            station = event.get_station()
+            station = event.get_station()
+            channel = station.get_channel(channel_id)
+            freq = channel.get_frequencies()
+            ft = channel.get_frequency_spectrum()
+            plt.plot(freq, np.abs(ft), label="before cw subtraction")
+            sine_subtraction.run(event, station, det, **sine_sub_kw)
+            station = event.get_station()
+            channel = station.get_channel(channel_id)
+            freq = channel.get_frequencies()
+            ft = channel.get_frequency_spectrum()
+            plt.plot(freq, np.abs(ft), label="after cw subtraction", alpha = 0.6)
+            plt.legend()
+            plt.xlim(0, 1.)
+            plt.savefig("figures/tests/test_ft")
+            plt.close()
 
-        times = channel.get_times()
-        trace = channel.get_trace()
-        plt.plot(times, trace)
-        plt.savefig("trace")
-        break
+            times = channel.get_times()
+            trace = channel.get_trace()
+            plt.plot(times, trace)
+            plt.savefig("figures/tests/test_trace")
+            break
+    print(sine_subtraction.removed_freqs)
     rnog_reader.end()
     del rnog_reader

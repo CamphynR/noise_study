@@ -15,7 +15,6 @@ from utilities.utility_functions import read_pickle
 
 def reduce_contents_size(contents, freq_samples=128):
     contents_cp = copy.copy(contents)
-    del contents_cp["header"]["event_info"]
     del contents_cp["spec_amplitude_histograms"]
 
     # step = int(len(contents["freq"])/freq_samples)
