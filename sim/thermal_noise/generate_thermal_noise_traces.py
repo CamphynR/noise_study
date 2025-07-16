@@ -68,6 +68,7 @@ def create_thermal_noise_events(nr_events, station_id, detector,
                                 electronic_temperature=80*units.kelvin,
                                 passband = None,
                                 padding_length=8192,
+                                use_s_param_hardware=False,
                                 debug=False):
     # electronic noise temperature, refer to eric's POS for this (PoS(ICRC2023)1171)
 
@@ -101,24 +102,23 @@ def create_thermal_noise_events(nr_events, station_id, detector,
     galactic_noise_adder = channelGalacticNoiseAdder()
     galactic_noise_adder.begin(freq_range=[min_freq, max_freq],
                                caching=True)
-    # galactic_noise_adder = channelGalacticSunNoiseAdder()
-    # galactic_noise_adder.begin(freq_range=[min_freq, max_freq],
-    #                           caching=True)
 
-#    hardware_response = hardwareResponseIncorporator()
-#    hardware_response.begin()
+    if use_s_param_hardware:
+        hardware_response = hardwareResponseIncorporator()
+        hardware_response.begin()
 
-    system_response = systemResonseTimeDomainIncorporator()
-    if config["season"] == 2023:
-        response_path = "sim/library/deep_impulse_responses.json"
-    elif config["season"] == 2024:
-        response_path = ["sim/library/v2_v3_deep_impulse_responses.json", "sim/library/v2_v3_surface_impulse_responses.json"]
     else:
-        raise KeyError(f"config['season'] is not a recognized season.")
+        system_response = systemResonseTimeDomainIncorporator()
+        if config["season"] == 2023:
+            response_path = "sim/library/deep_impulse_responses.json"
+        elif config["season"] == 2024:
+            response_path = ["sim/library/v2_v3_deep_impulse_responses.json", "sim/library/v2_v3_surface_impulse_responses.json"]
+        else:
+            raise KeyError(f"config['season'] is not a recognized season.")
 
-    system_response.begin(det=detector,
-                          response_path=response_path
-                          )
+        system_response.begin(det=detector,
+                              response_path=response_path
+                              )
 
 
     events = []
@@ -167,8 +167,10 @@ def create_thermal_noise_events(nr_events, station_id, detector,
         if include_det_signal_chain:
             for event in event_types:
                 station = event.get_station()
-#                hardware_response.run(event, station, det=detector, sim_to_data=True)
-                system_response.run(event, station, detector)
+                if use_s_param_hardware:
+                    hardware_response.run(event, station, det=detector, sim_to_data=True)
+                else:
+                    system_response.run(event, station, detector)
         events.append(event_types)
     
     events = np.array(events)
@@ -195,6 +197,9 @@ if __name__ == "__main__":
     save_dir +=f"/job_{date}"
     if args.debug:
         save_dir += "_test"
+    if config["use_s_param_hardware_response"]:
+        save_dir += "s_param_hardware_response"
+
     create_nested_dir(save_dir)
     settings_dict = {**config, **vars(args)}
     config_file = f"{save_dir}/station{args.station}/config_efields.json"
@@ -283,6 +288,7 @@ if __name__ == "__main__":
                                              noise_sources=noise_sources, include_sum=include_sum,
                                              electronic_temperature=electronic_temperature,
                                              passband=[10 * units.MHz, 1600 * units.MHz],
+                                             use_s_param_hardware=config["use_s_param_hardware_response"],
                                              debug=debug
                                              )
 
