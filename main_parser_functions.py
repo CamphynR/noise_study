@@ -7,6 +7,7 @@ from natsort import natsorted
 import numpy as np
 import os
 import pickle
+import re
 import subprocess
 
 import NuRadioReco
@@ -34,7 +35,7 @@ def find_data_files(args, config):
 
 
     if args.run is not None:
-        root_dirs = glob.glob(f"{data_dir}/station{args.station}/run{args.run}/")
+        root_dirs = glob.glob(f"{data_dir}/station{args.station}/run{args.run}")
         run_files = glob.glob(f"{data_dir}/station{args.station}/run{args.run}/*")
         is_root = np.any([run_file.endswith(".root") for run_file in run_files])
         is_nur = np.any([run_file.endswith(".nur") for run_file in run_files])
@@ -49,6 +50,8 @@ def find_data_files(args, config):
         root_dirs = [glob.glob(f"{data_dir}/station{args.station}/run{run}")[0] for run in select_runs_list]
     else:
         root_dirs = glob.glob(f"{data_dir}/station{args.station}/run*")
+        #check to eliminate weird folders like "run\*" in the station13 folder
+        root_dirs = [r for r in root_dirs if re.search(r"run\d+", r)]
 
     run_files = glob.glob(f"{data_dir}/station{args.station}/run**/*", recursive=True)
     if not len(run_files):
@@ -143,7 +146,7 @@ def parse_data(reader, detector, config, args, logger,
     if os.path.isfile(config_name):
         os.remove(config_name)
     with open(config_name, "w") as f:
-        json.dump(settings_dict, f, cls=NpEncoder)
+        json.dump(settings_dict, f, cls=NpEncoder, indent=4)
 
     if config["save"]:
         src_dir = "/tmp/tmp_noise_study/"
@@ -212,18 +215,34 @@ def calculate_average_fft(reader, detector, config, args, logger, directory, cle
     reader is an NuRadio eventReader object
     """
     station_id = args.station
-    station_info = detector.get_station(station_id)
-    # temperory until 2024 det is added to database
-    date = datetime.date.fromisoformat(config["run_time_range"][0])
-    sampl_rate_date = datetime.date.fromisoformat("2023-12-31")
-    if date > sampl_rate_date :
-        sampling_rate = 2.4 * units.GHz
+
+
+    if config["simulation"]:
+        nr_channels = len(config["channels_to_include"])
+
+        digitizer = config["digitizer"]
+        digitizer_settings_path = "configs/digitizer_settings.json"
+        with open(digitizer_settings_path, "r") as file:
+            digitizer_settings = json.load(file)
+        digitizer_settings = digitizer_settings[digitizer]
+
+        nr_samples = digitizer_settings["nr_samples"]    
+        sampling_rate = digitizer_settings["sampling_rate"]
     else:
-        sampling_rate = station_info["sampling_rate"]
-    nr_channels = len(station_info["channels"])
-    nr_samples = station_info["number_of_samples"]
+        station_info = detector.get_station(station_id)
+        # temperory until 2024 det is added to database
+        date = datetime.date.fromisoformat(config["run_time_range"][0])
+        sampl_rate_date = datetime.date.fromisoformat("2023-12-31")
+        if date > sampl_rate_date :
+            sampling_rate = 2.4 * units.GHz
+        else:
+            sampling_rate = station_info["sampling_rate"]
+        nr_channels = len(station_info["channels"])
+        nr_samples = station_info["number_of_samples"]
 
     frequencies = np.fft.rfftfreq(nr_samples, d=1./sampling_rate)
+
+
 
     clean_data = not args.skip_clean
     clean = "raw" if args.skip_clean else "clean"
@@ -233,7 +252,148 @@ def calculate_average_fft(reader, detector, config, args, logger, directory, cle
     nr_events = 0
     for event in reader.run():
         station = event.get_station(args.station)
-        if args.debug:
+        if args.test:
+#            print(event.get_id())
+            print(nr_events)
+
+        if nr_events == 0:
+            begin_time = station.get_station_time()
+            end_time = station.get_station_time()
+        if station.get_station_time() < begin_time:
+            begin_time = station.get_station_time()
+        if station.get_station_time() > end_time:
+            end_time = station.get_station_time()
+        
+        if clean_data:
+            for cleaning_key in cleaning_modules.keys():
+
+                if cleaning_key.endswith("_sec"):
+                    cleaning_key_stripped = cleaning_key.split("_")[0]
+                    run_kw = config["cleaning"][cleaning_key_stripped]["run_kwargs"]
+                else:
+                    run_kw = config["cleaning"][cleaning_key]["run_kwargs"]
+
+                cleaning_modules[cleaning_key].run(event, station, detector,
+                                                   **run_kw)
+        
+        for channel in station.iter_channels():
+            channel_id = channel.get_id()
+            ch_frequencies = channel.get_frequencies()
+            assert np.all(frequencies == ch_frequencies)
+
+            # we take the mean as sqrt(mean(spectrum**2)) this preserves the energy of the spectra
+            # i.e. energy(mean_spectrum) = mean(energy_spectra)
+            # see Parseval's theorem
+            # this also means the variance changes
+            spectrum = channel.get_frequency_spectrum()
+            spectrum = np.abs(spectrum)
+            average_frequency_spectrum[channel_id] += spectrum**2
+            # we will use the delta method to approximate the variance
+            # first we estimate the population variance of spectrum**2
+            squared_frequency_spectrum[channel_id] += spectrum**4
+
+#            if args.test:
+#                if nr_events == 1:
+#                    if channel_id == 19:
+#                        plt.plot(frequencies, spectrum)
+#                        plt.xlabel("freq / GHz")
+#                        plt.ylabel("spec a / V/GHz")
+#                        plt.savefig("test_ft")
+#                        plt.close()
+#                        trace = channel.get_trace()
+#                        plt.plot(trace)
+#                        plt.xlabel("samples")
+#                        plt.ylabel("amplitude / V")
+#                        plt.savefig("test_trace")
+#                        plt.close()
+        nr_events += 1
+        if args.test:
+            if nr_events == max_nr_events:
+                break
+
+
+    average_frequency_spectrum /= nr_events
+    # continue the calculation of the population variance
+    squared_frequency_spectrum /= nr_events
+    var_frequency_spectrum = squared_frequency_spectrum - average_frequency_spectrum**2
+    # the variance on the mean i.e. Var(mean(spectrum**2))
+    var_frequency_spectrum /= nr_events
+    # convert to sqrt of the mean
+    # we now apply the delta method to find the variance of sqrt(mean(spectrum**2))
+    var_frequency_spectrum = (1./(4.*average_frequency_spectrum)) * var_frequency_spectrum
+    average_frequency_spectrum = np.sqrt(average_frequency_spectrum)
+
+    if args.test:
+        channel_id_test = 19
+        plt.plot(frequencies, average_frequency_spectrum[channel_id_test])
+        plt.xlabel("freq / GHz")
+        plt.ylabel("spec a / V/GHz")
+        plt.xlim(0., 1.)
+        plt.savefig("figures/tests/test_average_spectrum")
+        plt.close()
+    
+    header = {"nr_events" : nr_events,
+              "begin_time" : begin_time,
+              "end_time" : end_time}
+    result_dict = {"header" : header,
+                   "freq" : frequencies,
+                   "frequency_spectrum" : average_frequency_spectrum,
+                   "var_frequency_spectrum" : var_frequency_spectrum}
+
+    if config["save"]:
+        filename = f"{directory}/station{station_id}/{clean}/average_ft"
+        if args.batch_i is not None:
+            filename += f"_run{args.batch_i}"
+        filename += ".pickle"
+        with open(filename, "wb") as f:
+            pickle.dump(result_dict, f)
+
+
+
+
+def calculate_average_fft_old(reader, detector, config, args, logger, directory, cleaning_modules, max_nr_events=100):
+    """
+    reader is an NuRadio eventReader object
+    """
+    station_id = args.station
+
+
+    if config["simulation"]:
+        nr_channels = len(config["channels_to_include"])
+
+        digitizer = config["digitizer"]
+        digitizer_settings_path = "configs/digitizer_settings.json"
+        with open(digitizer_settings_path, "r") as file:
+            digitizer_settings = json.load(file)
+        digitizer_settings = digitizer_settings[digitizer]
+
+        nr_samples = digitizer_settings["nr_samples"]    
+        sampling_rate = digitizer_settings["sampling_rate"]
+    else:
+        station_info = detector.get_station(station_id)
+        # temperory until 2024 det is added to database
+        date = datetime.date.fromisoformat(config["run_time_range"][0])
+        sampl_rate_date = datetime.date.fromisoformat("2023-12-31")
+        if date > sampl_rate_date :
+            sampling_rate = 2.4 * units.GHz
+        else:
+            sampling_rate = station_info["sampling_rate"]
+        nr_channels = len(station_info["channels"])
+        nr_samples = station_info["number_of_samples"]
+
+    frequencies = np.fft.rfftfreq(nr_samples, d=1./sampling_rate)
+
+
+
+    clean_data = not args.skip_clean
+    clean = "raw" if args.skip_clean else "clean"
+
+    average_frequency_spectrum = np.zeros((nr_channels, len(frequencies)))
+    squared_frequency_spectrum = np.zeros((nr_channels, len(frequencies)))
+    nr_events = 0
+    for event in reader.run():
+        station = event.get_station(args.station)
+        if args.test:
 #            print(event.get_id())
             print(nr_events)
 
@@ -267,7 +427,7 @@ def calculate_average_fft(reader, detector, config, args, logger, directory, cle
             average_frequency_spectrum[channel_id] += spectrum
             squared_frequency_spectrum[channel_id] += spectrum**2
 
-#            if args.debug:
+#            if args.test:
 #                if nr_events == 1:
 #                    if channel_id == 19:
 #                        plt.plot(frequencies, spectrum)
@@ -282,7 +442,7 @@ def calculate_average_fft(reader, detector, config, args, logger, directory, cle
 #                        plt.savefig("test_trace")
 #                        plt.close()
         nr_events += 1
-        if args.debug:
+        if args.test:
             if nr_events == max_nr_events:
                 break
 
@@ -291,7 +451,7 @@ def calculate_average_fft(reader, detector, config, args, logger, directory, cle
     squared_frequency_spectrum /= nr_events
     var_frequency_spectrum = squared_frequency_spectrum - average_frequency_spectrum**2
 
-    if args.debug:
+    if args.test:
         channel_id_test = 19
         plt.plot(frequencies, average_frequency_spectrum[channel_id_test])
         plt.xlabel("freq / GHz")
@@ -357,8 +517,9 @@ def populate_spec_amplitude_histogram(reader, detector, config, args, logger, di
         for channel in station.iter_channels():
             if channel.get_id() not in config["channels_to_include"]:
                 continue
+            trace = channel.get_trace()
             sampling_rate = channel.get_sampling_rate()
-            nr_samples = channel.get_number_of_samples()
+            nr_samples = len(trace)
             frequencies = channel.get_frequencies()
             break
         break 
@@ -445,6 +606,108 @@ def populate_spec_amplitude_histogram(reader, detector, config, args, logger, di
 
 
 
+
+def populate_vrms_histogram(reader, detector, config, args, logger, directory, cleaning_modules, hist_range, nr_bins):
+    # this assumes these parameters stay constant over the chosen runtime!
+    station_id = args.station
+    station_info = detector.get_station(station_id)
+    nr_channels = len(station_info["channels"])
+    
+    clean_data = not args.skip_clean
+    clean = "raw" if args.skip_clean else "clean"
+
+    try:
+        times = [time["readoutTime"] for time in reader.reader.get_events_information("readoutTime").values()]
+        begin_time = np.min(times)
+        end_time = np.max(times)
+    except AttributeError:
+        #sims
+        begin_time = -1
+        end_time = -1
+    
+
+    bin_edges = np.linspace(hist_range[0], hist_range[1], nr_bins + 1)
+    bin_centres = bin_edges[:-1] + np.diff(bin_edges[0:2]) / 2
+
+    
+    # populate histogram per channel and per frequency
+    # so shape of data structure storing histograms is (channels, vrm_bins)
+    vrms_histograms = np.zeros((nr_channels, nr_bins))
+
+    nr_events = 0
+    for event in reader.run():
+        nr_events += 1
+        station = event.get_station(args.station)
+        
+        if clean_data:
+            for cleaning_key in cleaning_modules.keys():
+                if cleaning_key.endswith("_sec"):
+                    cleaning_key_stripped = cleaning_key.split("_")[0]
+                    run_kw = config["cleaning"][cleaning_key_stripped]["run_kwargs"]
+                else:
+                    cleaning_modules[cleaning_key].run(event, station, detector,
+                                                       **config["cleaning"][cleaning_key]["run_kwargs"])
+        
+        for channel in station.iter_channels():
+            channel_id = channel.get_id()
+            trace = channel.get_trace()
+            vrms = np.sqrt(np.mean(trace**2))
+
+            # to get a bin number you should only pass the INNER edges to np.searchsorted
+            bin_indices = np.searchsorted(bin_edges[1:-1], vrms)
+            vrms_histograms[channel_id, bin_indices] += 1
+
+            # if args.test and nr_events == 1:
+            #     test_idx = 250
+            #     plt.plot(frequencies, spectrum)
+            #     plt.hlines(bin_edges, 0, 1.2*np.max(frequencies), colors="r", linewidth=1.)
+            #     plt.scatter(frequencies[test_idx], spectrum[test_idx], color="red", zorder=5)
+            #     x_text = [1.75 for i in range(len(bin_centres))]
+            #     y_text = [bin_c for bin_c in bin_centres]
+            #     text = [f"bin {i}" for i in range(len(bin_centres))]
+            #     for i in range(len(text)):
+            #         plt.text(x_text[i], y_text[i], text[i], fontsize="xx-small",
+            #                  verticalalignment="center",
+            #                  horizontalalignment="center")
+            #     plt.ylim(0.2, 0.4)
+            #     plt.xlabel("freq / GHz")
+            #     plt.ylabel("spec amp / V/GHz")
+            #     plt.savefig("test_main")
+            #     plt.close()
+            #     logger.debug(f"test at frequency: {frequencies[test_idx]}")
+            #     logger.debug(f"test binned in bin {bin_indices[test_idx]}, located at {bin_centres[bin_indices[test_idx]]}")
+
+            #     raise OSError
+
+
+    try:
+        event_info = reader.reader.get_events_information(["run", "eventNumber"])
+    except AttributeError:
+        event_info = 0
+    header = {"nr_events" : nr_events,
+              "hist_range" : hist_range,
+              "bin_centres" : bin_centres,
+              "begin_time" : begin_time,
+              "end_time" : end_time,
+              "events_info" : event_info}
+    result_dict = {"header" : header,
+                   "time" : station.get_station_time(),
+                   "vrms_histograms" : vrms_histograms}
+
+    if config["save"]:
+        filename = f"{directory}/station{station_id}/{clean}/vrms_histograms"
+        if args.batch_i is not None:
+            filename += f"_run{args.batch_i}"
+        filename += ".pickle"
+        with open(filename, "wb") as f:
+            pickle.dump(result_dict, f)
+
+    return result_dict    
+
+
+
+
+
 def collect_traces(reader, detector, config, args, logger, directory, cleaning_modules, max_nr_events=1000):
     station_id = args.station
     station_info = detector.get_station(station_id)
@@ -526,8 +789,119 @@ def collect_spectra(reader, detector, config, args, logger, directory, cleaning_
     event_writer.end()
 
 
+def calculate_rms(trace):
+    rms = np.sqrt(np.mean(np.power(trace, 2)))
+    return rms
+
+def calculate_average_vrms(reader, detector, config, args, logger, directory, cleaning_modules, max_nr_events=100):
+    """
+    reader is an NuRadio eventReader object
+    """
+    station_id = args.station
+    station_info = detector.get_station(station_id)
+    # temperory until 2024 det is added to database
+    date = datetime.date.fromisoformat(config["run_time_range"][0])
+    sampl_rate_date = datetime.date.fromisoformat("2023-12-31")
+    if date > sampl_rate_date :
+        sampling_rate = 2.4 * units.GHz
+    else:
+        sampling_rate = station_info["sampling_rate"]
+    nr_channels = len(station_info["channels"])
+    nr_samples = station_info["number_of_samples"]
+
+    clean_data = not args.skip_clean
+    clean = "raw" if args.skip_clean else "clean"
+
+    average_vrms = np.zeros(nr_channels)
+    squared_vrms = np.zeros(nr_channels)
+    nr_events = 0
+    for event in reader.run():
+        station = event.get_station(args.station)
+        if args.test:
+#            print(event.get_id())
+            print(nr_events)
+
+        if nr_events == 0:
+            begin_time = station.get_station_time()
+            end_time = station.get_station_time()
+        if station.get_station_time() < begin_time:
+            begin_time = station.get_station_time()
+        if station.get_station_time() > end_time:
+            end_time = station.get_station_time()
+        
+        if clean_data:
+            for cleaning_key in cleaning_modules.keys():
+
+                if cleaning_key.endswith("_sec"):
+                    cleaning_key_stripped = cleaning_key.split("_")[0]
+                    run_kw = config["cleaning"][cleaning_key_stripped]["run_kwargs"]
+                else:
+                    run_kw = config["cleaning"][cleaning_key]["run_kwargs"]
+
+                cleaning_modules[cleaning_key].run(event, station, detector,
+                                                   **run_kw)
+        
+        for channel in station.iter_channels():
+            channel_id = channel.get_id()
+            
+            trace_times = channel.get_times()
+            trace = channel.get_trace()
+
+            vrms = calculate_rms(trace)
+            average_vrms[channel_id] += vrms
+            squared_vrms[channel_id] += vrms**2
+
+#            if args.test:
+#                if nr_events == 1:
+#                    if channel_id == 19:
+#                        plt.plot(frequencies, spectrum)
+#                        plt.xlabel("freq / GHz")
+#                        plt.ylabel("spec a / V/GHz")
+#                        plt.savefig("test_ft")
+#                        plt.close()
+#                        trace = channel.get_trace()
+#                        plt.plot(trace)
+#                        plt.xlabel("samples")
+#                        plt.ylabel("amplitude / V")
+#                        plt.savefig("test_trace")
+#                        plt.close()
+        nr_events += 1
+        if args.test:
+            if nr_events == max_nr_events:
+                break
+
+
+    average_vrms /= nr_events
+    squared_vrms /= nr_events
+    var_vrms = squared_vrms - average_vrms**2
+
+    if args.test:
+        plt.plot(channels, vrms)
+        plt.xlabel("channels")
+        plt.ylabel("spec a / V/GHz")
+        plt.savefig("figures/tests/test_average_vrms")
+        plt.close()
+    
+    header = {"nr_events" : nr_events,
+              "begin_time" : begin_time,
+              "end_time" : end_time}
+    result_dict = {"header" : header,
+                   "vrms" : average_vrms,
+                   "var_vrms" : var_vrms}
+
+    if config["save"]:
+        filename = f"{directory}/station{station_id}/{clean}/average_vrms"
+        if args.batch_i is not None:
+            filename += f"_run{args.batch_i}"
+        filename += ".pickle"
+        with open(filename, "wb") as f:
+            pickle.dump(result_dict, f)
+
+
 
 functions = dict(average_ft = calculate_average_fft,
                  spec_hist = populate_spec_amplitude_histogram,
                  traces = collect_traces,
-                 spectra = collect_spectra)
+                 spectra = collect_spectra,
+                 vrms = calculate_average_vrms,
+                 vrms_histograms=populate_vrms_histogram)

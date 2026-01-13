@@ -10,9 +10,15 @@ from scipy.signal.windows import tukey
 
 
 from NuRadioReco.detector.RNO_G.analog_components import load_amp_response
+from NuRadioReco.modules.channelBandPassFilter import channelBandPassFilter
 from NuRadioReco.modules.io.RNO_G.readRNOGDataMattak import readRNOGData
 from NuRadioReco.utilities import units
 from NuRadioReco.utilities.fft import time2freq, freq2time
+
+"""
+REMEMBER ALL SAMPLING RATE DEFAULTS ARE SET TO 3.2 GHz!!! (which is wrong for 2024 RADIANT v3)
+"""
+
 
 def open_response_file(response_path):
     with open(response_path, "r") as response_file:
@@ -36,10 +42,10 @@ def open_response_file(response_path):
 
 
 def rescale_response(response, integration_range = [0.08*units.GHz, 0.8*units.GHz],
-                     nr_samples=2048, sampling_rate=3.2*units.GHz):
+                     nr_samples=2048, sampling_rate=3.2*units.GHz,
+                     return_norm=False):
     """
-    Function to rescale the given response such that it's energy = 1
-    (so integral(response**2) = 1)
+    Function to rescale the given response such that it's max is set to 1
     """
     frequencies = np.fft.rfftfreq(nr_samples, d=1./sampling_rate)
 #    f0 = sampling_rate/nr_samples
@@ -50,11 +56,13 @@ def rescale_response(response, integration_range = [0.08*units.GHz, 0.8*units.GH
 
     new_response = interpolate.interp1d(frequencies, response(frequencies)/max_response)
 
+    if return_norm:
+        return new_response, max_response
     return new_response
     
 
 
-def convert_response_to_spectrum(response_dic, response_channel_key, window = [-15, 40]):
+def convert_response_to_spectrum(response_dic, response_channel_key, window = [-15, 40], bandpass_kwargs=None):
     response_dic_temp = copy.copy(response_dic)
     times = response_dic_temp[f"{response_channel_key}_times"]
     response = response_dic_temp[response_channel_key]
@@ -67,9 +75,20 @@ def convert_response_to_spectrum(response_dic, response_channel_key, window = [-
     sampling_rate = 1./np.diff(times[:2])[0]
     frequencies = np.fft.rfftfreq(len(times), d=1./sampling_rate)
     spectrum = time2freq(response, sampling_rate)
-    spectrum_interpol = interpolate.interp1d(frequencies, np.abs(spectrum),
+
+    if bandpass_kwargs is not None:
+        bandpas_filter = channelBandPassFilter()
+        # 0 0 0 just fills in the keywords station, channel, det.
+        # these are not used in the function but included to follow NuRadio's structure
+        bandpas_filter = bandpas_filter.get_filter(frequencies, 0, 0, 0,
+                                                   **bandpass_kwargs)
+        spectrum *= bandpas_filter
+
+    gain_interpol = interpolate.interp1d(frequencies, np.abs(spectrum),
                                              bounds_error=False, fill_value=0+0j)
-    return spectrum_interpol
+    phase_interpol = interpolate.interp1d(frequencies, np.unwrap(np.angle(spectrum), period=np.pi),
+                                             bounds_error=False, fill_value=0+0j)
+    return gain_interpol, phase_interpol
 
 
 def convert_response_to_time_domain(response, nr_samples=2048, sampling_rate=3.2*units.GHz, debug=False):
@@ -102,7 +121,20 @@ def convert_response_to_time_domain(response, nr_samples=2048, sampling_rate=3.2
 
 
 
-class systemResonseTimeDomainIncorporator():
+def temp_to_volt(temperature, min_freq, max_freq, frequencies, resistance=50*units.ohm, filter_type="rectangular"):
+    if filter_type=="rectangular":
+        filt = np.zeros_like(frequencies)
+        filt[np.where(np.logical_and(min_freq < frequencies , frequencies < max_freq))] = 1
+    else:
+        print("Other filters not yet implemented")
+    bandwidth = np.trapezoid(np.abs(filt)**2, frequencies)
+    k = constants.k * (units.m**2 * units.kg * units.second**-2 * units.kelvin**-1)
+    vrms = np.sqrt(k * temperature * resistance * bandwidth)
+    return vrms
+
+
+
+class systemResponseTimeDomainIncorporator():
     def __init__(self):
         self.channel_mapping_inv = {
             "deep" : [0, 1, 2, 3],
@@ -113,8 +145,16 @@ class systemResonseTimeDomainIncorporator():
         return
 
 
-    def begin(self, det, response_path=None):
+    def begin(self, det, response_path=None, normalize=True, overwrite_key=None, bandpass_kwargs=None):
+        """
+        only_response_path: the module will not try to make responses for deep helper and surface but will only load the given response path
+        """
+
+        if bandpass_kwargs is not None and not isinstance(bandpass_kwargs, dict):
+            raise TypeError("bandpass only accepts a dict of kwargs for the module channelBandPassFilter's function get_filter")
+
         self.response = {key : {} for key in self.channel_mapping_inv.keys()}
+        self.normalizations = {key : {} for key in self.channel_mapping_inv.keys()}
         if response_path is None:
             self.response["deep"] = load_amp_response(amp_type="deep_impulse")
             self.response["helper"] = copy.copy(self.response["deep"])
@@ -129,9 +169,64 @@ class systemResonseTimeDomainIncorporator():
             impulse_response_deep = open_response_file(response_path[0])
             impulse_response_surface = open_response_file(response_path[1])
             
-            self.response["deep"]["gain"] = convert_response_to_spectrum(impulse_response_deep, "v3_ch1_62dB")
-            self.response["helper"]["gain"] = convert_response_to_spectrum(impulse_response_deep, "v3_ch4_62dB")
-            self.response["surface"]["gain"] = convert_response_to_spectrum(impulse_response_surface, "v3_ch13")
+            if isinstance(overwrite_key, dict):
+                deep_key = overwrite_key["deep"]
+                helper_key = overwrite_key["helper"]
+                surface_key = overwrite_key["surface"]
+
+                self.response["deep"]["gain"], self.response["deep"]["phase"] = convert_response_to_spectrum(impulse_response_deep, deep_key, bandpass_kwargs=bandpass_kwargs)
+                self.response["helper"]["gain"], self.response["helper"]["phase"]= convert_response_to_spectrum(impulse_response_deep, helper_key, bandpass_kwargs=bandpass_kwargs)
+                self.response["surface"]["gain"], self.response["surface"]["phase"] = convert_response_to_spectrum(impulse_response_surface, surface_key, bandpass_kwargs=bandpass_kwargs)
+            elif overwrite_key:
+                deep_key = overwrite_key
+                helper_key = overwrite_key
+                surface_key = overwrite_key
+
+                if overwrite_key in impulse_response_deep.keys():
+                    self.response["deep"]["gain"], self.response["deep"]["phase"] = convert_response_to_spectrum(impulse_response_deep, deep_key, bandpass_kwargs=bandpass_kwargs)
+                    self.response["helper"]["gain"], self.response["helper"]["phase"]= convert_response_to_spectrum(impulse_response_deep, helper_key, bandpass_kwargs=bandpass_kwargs)
+                    self.response["surface"]["gain"], self.response["surface"]["phase"] = convert_response_to_spectrum(impulse_response_deep, surface_key, bandpass_kwargs=bandpass_kwargs)
+                elif overwrite_key in impulse_response_surface.keys():
+                    self.response["deep"]["gain"], self.response["deep"]["phase"] = convert_response_to_spectrum(impulse_response_surface, deep_key, bandpass_kwargs=bandpass_kwargs)
+                    self.response["helper"]["gain"], self.response["helper"]["phase"]= convert_response_to_spectrum(impulse_response_surface, helper_key, bandpass_kwargs=bandpass_kwargs)
+                    self.response["surface"]["gain"], self.response["surface"]["phase"] = convert_response_to_spectrum(impulse_response_surface, surface_key, bandpass_kwargs=bandpass_kwargs)
+                elif overwrite_key == "surface_query":
+                    response_tmp = load_amp_response(amp_type="rno_surface_impulse")
+                    response_tmp_phase = response_tmp["phase"]
+                    # we choose this fine enough to avoid any artifacts, the responses at this point
+                    # do not yet correspond to a radiant versions frequencies
+                    tmp_freqs = np.linspace(0., 1.6, 10000)
+                    response_tmp_phase = response_tmp_phase(tmp_freqs)
+                    response_tmp_phase = np.unwrap(np.angle(response_tmp_phase), period=np.pi)
+                    response_tmp_phase = interpolate.interp1d(tmp_freqs, response_tmp_phase,
+                                                              bounds_error=False, fill_value=0+0j)
+                    response_tmp_gain = rescale_response(response_tmp["gain"])
+                    if bandpass_kwargs is not None:
+                        bandpas_filter = channelBandPassFilter()
+                        # 0 0 0 just fills in the keywords station, channel, det.
+                        # these are not used in the function but included to follow NuRadio's structure
+                        freqs = np.arange(0, 1.6, 0.01)
+                        bandpas_filter = bandpas_filter.get_filter(freqs, 0, 0, 0,
+                                                                   **bandpass_kwargs)
+                        response_tmp_gain = interpolate.interp1d(
+                                freqs,
+                                np.abs(bandpas_filter) * response_tmp_gain(freqs),
+                                bounds_error=False,
+                                fill_value=0.)
+                    self.response["deep"]["gain"], self.response["deep"]["phase"] = response_tmp_gain, response_tmp_phase
+                    self.response["helper"]["gain"], self.response["helper"]["phase"]= response_tmp_gain, response_tmp_phase
+                    self.response["surface"]["gain"], self.response["surface"]["phase"] = response_tmp_gain, response_tmp_phase
+
+
+            else:
+                deep_key = "v3_ch1_62dB"
+                helper_key = "v3_ch4_62dB"
+                surface_key = "v3_ch13"
+
+                self.response["deep"]["gain"], self.response["deep"]["phase"] = convert_response_to_spectrum(impulse_response_deep, deep_key, bandpass_kwargs=bandpass_kwargs)
+                self.response["helper"]["gain"], self.response["helper"]["phase"]= convert_response_to_spectrum(impulse_response_deep, helper_key, bandpass_kwargs=bandpass_kwargs)
+                self.response["surface"]["gain"], self.response["surface"]["phase"] = convert_response_to_spectrum(impulse_response_surface, surface_key, bandpass_kwargs=bandpass_kwargs)
+                
                 
         else:
             # assume only deep response is given since for 2023
@@ -139,13 +234,19 @@ class systemResonseTimeDomainIncorporator():
             impulse_response_deep = open_response_file(response_path)
             self.response["surface"] = load_amp_response(amp_type="rno_surface_impulse")
             
-            self.response["deep"]["gain"] = convert_response_to_spectrum(impulse_response_deep, "ch2")
-            self.response["helper"]["gain"] = convert_response_to_spectrum(impulse_response_deep, "ch9_6dB")
+            self.response["deep"]["gain"], self.response["deep"]["phase"] = convert_response_to_spectrum(impulse_response_deep, "ch2", bandpass_kwargs=bandpass_kwargs)
+            try:
+                self.response["helper"]["gain"], self.response["helper"]["phase"] = convert_response_to_spectrum(impulse_response_deep, "ch9_6dB", bandpass_kwargs=bandpass_kwargs)
+                self.response["helper"]["gain"] = rescale_response(self.response["helper"]["gain"])
+            except:
+                print("no helper channels found")
 
 
-        self.response["deep"]["gain"] = rescale_response(self.response["deep"]["gain"])
-        self.response["helper"]["gain"] = rescale_response(self.response["helper"]["gain"])
-        self.response["surface"]["gain"] = rescale_response(self.response["surface"]["gain"])
+
+
+        if normalize:
+            self.response["deep"]["gain"], self.normalizations["deep"] = rescale_response(self.response["deep"]["gain"], return_norm=True)
+            self.response["surface"]["gain"], self.normalizations["surface"] = rescale_response(self.response["surface"]["gain"], return_norm=True)
 
         return
 
@@ -169,8 +270,48 @@ class systemResonseTimeDomainIncorporator():
 
     def get_response(self, channel_id):
         response_key = self.channel_mapping[channel_id] 
-        response = self.response[response_key]["gain"]
+        response = self.response[response_key]
         return response
+
+    def get_normalization(self, channel_id):
+        response_key = self.channel_mapping[channel_id] 
+        norm = self.normalizations[response_key]
+        return norm
+
+    def save_response(self, filename, nr_samples=2048, sampling_rate=3.2*units.GHz,
+                      channel_id=None):
+        """
+        channel_id : None or int
+            If specified only save the response for the given channel id,
+            the json dict will have keys freq, gain, phase
+            If None, save a full station template,
+            the json dict will have keys gain_deep, gain_helper, gain_surface and likewise for the phase
+        """
+        frequencies = np.fft.rfftfreq(nr_samples, d=1./sampling_rate).tolist()
+        json_dic = {}
+        json_dic["frequencies"] = frequencies
+        if channel_id is None:
+            json_dic["gain_deep"] = self.response["deep"]["gain"](frequencies).tolist()
+            json_dic["gain_helper"] = self.response["helper"]["gain"](frequencies).tolist()
+            json_dic["gain_surface"] = self.response["surface"]["gain"](frequencies).tolist()
+
+            json_dic["phase_deep"] = self.response["deep"]["phase"](frequencies).tolist()
+            json_dic["phase_helper"] = self.response["helper"]["phase"](frequencies).tolist()
+            json_dic["phase_surface"] = np.angle(self.response["surface"]["phase"](frequencies)).tolist()
+        else:
+            response_key = self.channel_mapping[channel_id]
+            response = self.response[response_key]
+            json_dic["gain"] = response["gain"](frequencies).tolist()
+            json_dic["phase"] = response["phase"](frequencies).tolist()
+
+
+
+        with open(filename, "w") as file:
+            json.dump(json_dic, file)
+        return json_dic
+        
+        
+
 
 #    def apply_response(self, channel, response_dic, window=[-10, 30]):
 #        channel_id = channel.get_id()
@@ -214,25 +355,15 @@ if __name__ == "__main__":
     from NuRadioReco.modules.channelGenericNoiseAdder import channelGenericNoiseAdder
 
 
-
-    def temp_to_volt(temperature, min_freq, max_freq, frequencies, resistance=50*units.ohm, filter_type="rectangular"):
-        if filter_type=="rectangular":
-            filt = np.zeros_like(frequencies)
-            filt[np.where(np.logical_and(min_freq < frequencies , frequencies < max_freq))] = 1
-        else:
-            print("Other filters not yet implemented")
-        bandwidth = np.trapezoid(np.abs(filt)**2, frequencies)
-        k = constants.k * (units.m**2 * units.kg * units.second**-2 * units.kelvin**-1)
-        vrms = np.sqrt(k * temperature * resistance * bandwidth)
-        return vrms
-
-
     parser = argparse.ArgumentParser()
     parser.add_argument("--station", "-s", default=23)
+    parser.add_argument("--channel", "-c", default=0, type=int)
     parser.add_argument("--run", "-r", default=101)
+    parser.add_argument("--save_response", action="store_true")
     args = parser.parse_args()
 
     response_path = "/user/rcamphyn/noise_study/sim/library/deep_impulse_responses.json"
+#    response_path = "/user/rcamphyn/noise_study/sim/library/flower_impulse_responses.json"
     
     freq_range = [0., 1.6]
     nr_samples = 2048
@@ -241,15 +372,25 @@ if __name__ == "__main__":
     noise_adder = channelGenericNoiseAdder()
     noise_adder.begin()
     amplitude = temp_to_volt(80 * units.kelvin, freq_range[0], freq_range[1], frequencies)
+
+
+    passband = [0.1, 0.7]
+    bandpass_kwargs = dict(passband=passband, filter_type="butter", order=10) 
+
     
 
-    system_incorporator = systemResonseTimeDomainIncorporator()
+    system_incorporator = systemResponseTimeDomainIncorporator()
     system_incorporator.begin(det=0,
-                              response_path=response_path
+                              response_path=response_path,
+                              bandpass_kwargs=bandpass_kwargs
                               )
 
-    channel_id = 0
-    response = system_incorporator.get_response(channel_id)
+    if args.save_response:
+        system_incorporator.save_response("system_response.json")
+
+    response = system_incorporator.get_response(args.channel)
+    phase = response["phase"]
+    response = response["gain"]
     nr_sims = 1000
     test_noise = []
     for i in range(nr_sims): 
@@ -261,15 +402,18 @@ if __name__ == "__main__":
 
 
     plt.style.use("gaudi")
-    fig, axs = plt.subplots(2, 1, sharex=True, figsize=(15, 20))
-    axs[0].plot(frequencies, response(frequencies))
-    axs[0].set_ylabel("Gain")
-    axs[0].set_title("Gain of deep respone")
-    axs[1].plot(frequencies, test_noise)
-    axs[1].set_xlim(0, 1.)
-    axs[1].set_xlabel("freq / GHz")
-    axs[1].set_ylabel("Spectral amplitude / V/GHz")
-    axs[1].set_title(f"mean of {nr_sims} generic noise spectra")
+    fig, axs = plt.subplots(2, 2, figsize=(20, 20))
+    axs[0][0].plot(frequencies, response(frequencies))
+    axs[0][0].set_ylabel("Gain")
+    axs[0][0].set_title("Gain of respone")
+    axs[0][1].plot(frequencies, phase(frequencies))
+    axs[0][1].set_ylabel("Phase / rad")
+    axs[0][1].set_title("Phase of respone")
+    axs[1][0].plot(frequencies, test_noise)
+    axs[1][0].set_xlim(0, 1.)
+    axs[1][0].set_xlabel("freq / GHz")
+    axs[1][0].set_ylabel("Spectral amplitude / V/GHz")
+    axs[1][0].set_title(f"mean of {nr_sims} generic noise spectra")
     fig.tight_layout()
     fig.savefig("test_system_response")
 

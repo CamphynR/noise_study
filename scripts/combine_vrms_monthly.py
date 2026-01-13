@@ -1,0 +1,105 @@
+import argparse
+from natsort import natsorted
+import numpy as np
+
+from utilities.utility_functions import read_pickle, write_pickle
+
+def read_vrms_file(path):
+    result_dictionary = read_pickle(path)
+    header = result_dictionary["header"]
+    vrms = result_dictionary["vrms"]
+    var_vrms = result_dictionary["var_vrms"]
+    nr_events = header["nr_events"]
+    return vrms, var_vrms, nr_events, header
+
+
+def combine_mean(mean1, mean2, nr_events_1, nr_events_2):
+    weighted_sum = mean1 * nr_events_1 + mean2 * nr_events_2
+    return weighted_sum / (nr_events_1 + nr_events_2)
+
+def combine_times(begin_time1, end_time1, begin_time2, end_time2):
+    if begin_time1 < begin_time2:
+        begin_time = begin_time1
+    else:
+        begin_time = begin_time2
+    if end_time1 > end_time2:
+        end_time = end_time1
+    else:
+        end_time = end_time2
+    return begin_time, end_time
+
+
+def combine_vars(var1, var2, mean1, mean2, nr_events_1, nr_events_2):
+    weighted_sum = (nr_events_1 - 1) * var1 + (nr_events_2 * var2)
+    correction_factor = nr_events_1 * nr_events_2 * (mean1 - mean2)**2
+
+    return weighted_sum / (nr_events_1 + nr_events_2 - 1) + correction_factor / ((nr_events_1 + nr_events_2) * (nr_events_1 + nr_events_2 - 1))
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--pickles", nargs="+")
+    args = parser.parse_args()
+    
+    args.pickles = natsorted(args.pickles)
+
+    vrms_prev, var_vrms_prev, nr_events_prev, header_prev = read_vrms_file(args.pickles[0])
+    begin_time_prev, end_time_prev = header_prev["begin_time"], header_prev["end_time"]
+    just_switched_month = False
+
+    for i, pickle in enumerate(args.pickles[1:]):
+        vrms, var_vrms, nr_events, header = read_vrms_file(pickle)
+        if just_switched_month:
+            vrms_prev = vrms
+            var_vrms_prev = var_vrms
+            nr_events = 0
+            begin_time_prev = header["begin_time"]
+            end_time_prev = header["end_time"]
+            just_switched_month = False
+            continue
+
+        var_vrms_prev = combine_vars(var_vrms_prev, var_vrms,
+                                     vrms_prev, vrms,
+                                     nr_events_prev, nr_events)
+        vrms_prev = combine_mean(vrms_prev, vrms,
+                                 nr_events_prev, nr_events)
+        begin_time_prev, end_time_prev = combine_times(begin_time_prev, end_time_prev, header["begin_time"], header["end_time"])
+        nr_events_prev += nr_events 
+
+        prev_month = header_prev["begin_time"][0].datetime.month
+        month = header["begin_time"][0].datetime.month
+        if prev_month != month:
+            print("New month, saving \n ----------")
+            result_dictionary = read_pickle(args.pickles[0])
+            result_dictionary["vrms"] = vrms_prev
+            result_dictionary["var_vrms"] = var_vrms_prev
+            print(begin_time_prev)
+            print(end_time_prev)
+            result_dictionary["header"]["nr_events"] = nr_events
+            result_dictionary["header"]["begin_time"] = begin_time_prev
+            result_dictionary["header"]["end_time"] = end_time_prev
+            
+            just_switched_month = True
+
+            pickle_file = args.pickles[0].rsplit("_", 1)[0]
+            pickle_file += f"_month_{prev_month}_combined.pickle"
+            write_pickle(result_dictionary, pickle_file)
+
+
+        header_prev = header
+
+
+    print("New month, saving \n ----------")
+    result_dictionary = read_pickle(args.pickles[0])
+    result_dictionary["vrms"] = vrms_prev
+    result_dictionary["var_vrms"] = var_vrms_prev
+    print(begin_time_prev)
+    print(end_time_prev)
+    result_dictionary["header"]["nr_events"] = nr_events
+    result_dictionary["header"]["begin_time"] = begin_time_prev
+    result_dictionary["header"]["end_time"] = end_time_prev
+    
+    just_switched_month = True
+
+    pickle_file = args.pickles[0].rsplit("_", 1)[0]
+    pickle_file += f"_month_{prev_month}_combined.pickle"
+    write_pickle(result_dictionary, pickle_file)

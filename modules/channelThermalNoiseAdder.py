@@ -22,6 +22,7 @@ from NuRadioReco.utilities import units
 logger = logging.getLogger('NuRadioReco.channelThermalNoiseAdder')
 
 
+
 class channelThermalNoiseAdder:
     """
     module to generate thermal noise, both from electronics and ice
@@ -35,7 +36,7 @@ class channelThermalNoiseAdder:
 
 
     @functools.lru_cache(maxsize=1024 * 32)
-    def get_cached_antenna_response(self, antenna_pattern, zen, azi, *ant_orient):
+    def get_cached_antenna_response(self, antenna_pattern, zen, azi, *ant_orient, use_db=True):
         return antenna_pattern.get_antenna_response_vectorized(self.freqs, zen, azi, *ant_orient)
 
 

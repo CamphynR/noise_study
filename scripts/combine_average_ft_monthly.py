@@ -90,3 +90,18 @@ if __name__ == "__main__":
         header_prev = header
 
 
+    print("New month, saving \n ----------")
+    result_dictionary = read_pickle(args.pickles[0])
+    result_dictionary["frequency_spectrum"] = frequency_spectrum_prev
+    result_dictionary["var_frequency_spectrum"] = var_frequency_spectrum_prev
+    print(begin_time_prev)
+    print(end_time_prev)
+    result_dictionary["header"]["nr_events"] = nr_events
+    result_dictionary["header"]["begin_time"] = begin_time_prev
+    result_dictionary["header"]["end_time"] = end_time_prev
+    
+    just_switched_month = True
+
+    pickle_file = args.pickles[0].rsplit("_", 1)[0]
+    pickle_file += f"_month_{prev_month}_combined.pickle"
+    write_pickle(result_dictionary, pickle_file)

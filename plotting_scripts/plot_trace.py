@@ -27,12 +27,13 @@ def plot_trace(reader, detector, passband : list, clean : bool = False, event_id
         axs = np.ndarray.flatten(axs) 
         for channel_idx, channel in enumerate(station.iter_channels()):
             channel_id = channel.get_id()
-            trace = channel.get_trace() * 1e3 * units.mV
-            time = np.arange(2048) / 3.2 * units.ns 
+            trace = channel.get_trace() / units.mV
+            time = np.arange(2048) / (3.2 * units.GHz) 
             axs[channel_idx].plot(time, trace)
             axs[channel_idx].set_xlabel("time / ns", size = "large")
             axs[channel_idx].set_ylabel("voltage / mV", size = "large")
             axs[channel_idx].set_title(f"channel {channel_idx}")
+            print(np.sqrt(np.mean(np.power(trace, 2))))
         
         clean_string = "clean" if clean else "unclean"
         fig.suptitle(f"Time traces for station {station}, event {event_id} ({clean_string})")

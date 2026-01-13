@@ -1,0 +1,15 @@
+Requirements = (!regexp("^node31", Machine) && !regexp("^node33", Machine) && !regexp("^node36", Machine) && !regexp("^node38", Machine))
+getenv=True
+batch_name=gain_per_run_$(Cluster).$(Process)
+
+executable = /user/rcamphyn/noise_study/plotting_scripts/plot_gain_per_run.sh
+
+
+log = /user/rcamphyn/noise_study/submit/gain_per_run_$(STATION).log
+output = /user/rcamphyn/noise_study/submit/gain_per_run_$(STATION).out
+error = /user/rcamphyn/noise_study/submit/gain_per_run_$(STATION).err
+request_cpus = 1
+request_memory = 8000MB
+request_disk = 5GB
+should_transfer_files = NO
+queue 1

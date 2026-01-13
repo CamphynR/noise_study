@@ -25,8 +25,8 @@ sampling_rate = 3.2 * units.GHz
 frequencies = np.fft.rfftfreq(n_samples, d=1./sampling_rate)
 freq_range = np.array([10, 1000]) * units.MHz
 
-det = Detector(source="rnog_mongo", select_stations=args.station)
-det.update(datetime.datetime(2023,8,1))
+#det = Detector(source="rnog_mongo", select_stations=args.station)
+#det.update(datetime.datetime(2023,8,1))
 
 interpolation_frequencies = np.around(np.logspace(*np.log10(freq_range), num=15), 3)
 sky_model = GlobalSkyModel(freq_unit="MHz")
@@ -45,8 +45,12 @@ c_vac = scipy.constants.c * units.m / units.s
 passband = [0.01, 1.]
 passband_filter = (freqs > passband[0]) & (freqs < passband[1])
 
+chosen_freq = 200 * units.MHz
+freq_idx = np.where(np.isclose(frequencies, chosen_freq, atol=np.diff(frequencies)[0]/2))[0][0]
+
 times = [datetime.datetime(2023, 8, 12, i) for i in np.linspace(0, 23, 24, dtype=int)]
 efield_maxs = []
+efield_at_fixed_frequency = []
 for time in times:
     # coordinates Summit Station
     local_coordinates = get_local_coordinates((72.574414869,-38.4555098446), time, nside)
@@ -80,7 +84,11 @@ for time in times:
         
         total_efield[passband_filter] += efield_amplitude
     efield_maxs.append(np.max(total_efield))
+    efield_at_fixed_frequency.append(total_efield[freq_idx])
 
-plt.plot(efield_maxs)
-plt.xticks(range(len(efield_maxs)), [t.hour for t in times])
-plt.show()
+plt.style.use("astroparticle_physics")
+plt.plot(efield_at_fixed_frequency)
+plt.xticks(range(len(efield_maxs)), [t.hour for t in times], rotation=-45)
+plt.xlabel("time / h")
+plt.ylabel("Maximum of electronic field / V/m")
+plt.savefig("figures/paper/galaxy_variation.eps", dpi=300, bbox_inches="tight")

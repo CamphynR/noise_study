@@ -1,4 +1,5 @@
 import argparse
+from astropy.time import Time
 import copy
 from decimal import Decimal
 from matplotlib.backends.backend_pdf import PdfPages
@@ -273,7 +274,6 @@ def plot_spectra(spectrum_fitter, args, pdf, fit_results_dic, color="poster"):
         ax.set_xlim(0, 1.)
         ax.set_ylim(-0.01, None)
 
-        smooth_window = 11 * np.diff(frequencies)[0]
         ax.text(1.01, 0.4,
                 f"Fit resulst:\n gain : {gain_factor:.2f}\n electronic linear amplitude : {el_ampl_factor:.2f}\n electronic linear constant : {el_cst_factor:.2E}\n f0 : {f0_factor:.2f} GHz",
                 transform=ax.transAxes,
@@ -292,6 +292,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", "-d", help="path to dat pickle file", default=None)
     parser.add_argument("--sims", "-s", help="path to sim pickle files, give in same order as noise sources, pass sum last ", nargs = "+")
+    parser.add_argument("--save_folder", default="/user/rcamphyn/noise_study/absolute_amplitude_results")
+    parser.add_argument("--filename", default=None)
+    parser.add_argument("--include_impedance_mismatch_correction", action="store_true")
     args = parser.parse_args()
 
     config_path = find_config(args.sims[0], sim=True)
@@ -305,15 +308,16 @@ if __name__ == "__main__":
 
     bandpass_filt = channelBandPassFilter()
     
-
-    spectrum_fitter = spectrumFitter(args.data, args.sims, bandpass=[0.1, 0.7])
-    fit_results = spectrum_fitter.get_fit_gain(mode="electronic_temp")
+    bandpass = [0.1, 0.7]
+#    bandpass = [0.05, 0.2]
+    spectrum_fitter = spectrumFitter(args.data, args.sims, bandpass=bandpass,
+                                     include_impedance_mismatch_correction=args.include_impedance_mismatch_correction)
+    fit_results = spectrum_fitter.save_fit_results(mode="electronic_temp", save_folder=args.save_folder, filename=args.filename)
 
     fit_range = spectrum_fitter.fit_range
 
     fit_results_dic = {ch_id : {} for ch_id in range(len(channel_ids))}
 
-    smooth_window_len = 11
     nr_samples = 2048
     sampling_rate=3.2*units.GHz
 
@@ -321,18 +325,22 @@ if __name__ == "__main__":
     elec_spectral_amplitudes = []
 
 
+    try:
+        season = spectrum_fitter.data_header["begin_time"].strftime("%Y")[0]
+    except:
+        season = Time(spectrum_fitter.data_header["begin_time"], format="unix").strftime("%Y")[0]
 
 
 
     plt.style.use("retro")
-    pdf = PdfPages(f"figures/absolute_ampl_calibration/spectra_fit_st{station_id}.pdf") 
+    pdf = PdfPages(f"figures/absolute_ampl_calibration/spectra_fit_season{season}_st{station_id}.pdf") 
     plot_spectra(spectrum_fitter, args, pdf, fit_results_dic)
     
 
 
 
 
-    with open(f"absolute_amplitude_fits/absolute_gains_fit_season2023_s{station_id}.pickle", "wb") as pickle_file:
+    with open(f"absolute_amplitude_fits/absolute_gains_fit_season{season}_s{station_id}.pickle", "wb") as pickle_file:
         pickle.dump(fit_results_dic, pickle_file)
 
     pdf.close()
@@ -359,7 +367,7 @@ if __name__ == "__main__":
 #    fig.suptitle(f"Calibration results", size=62)
     fig.tight_layout()
 
-    plt.savefig(f"figures/POS_ICRC/spectra_fit_st{station_id}_pos.pdf", bbox_inches="tight") 
+    plt.savefig(f"figures/POS_ICRC/spectra_fit_season{season}_st{station_id}_pos.pdf", bbox_inches="tight") 
 
 
 
@@ -424,4 +432,4 @@ if __name__ == "__main__":
     axs[1].set_xticks(np.arange(24))
     fig.suptitle(f"Station {station_id}")
     fig.tight_layout()
-    fig.savefig(f"figures/absolute_ampl_calibration/gain_per_channel") 
+    fig.savefig(f"figures/absolute_ampl_calibration/gain_per_channel_season{season}_st{station_id}") 

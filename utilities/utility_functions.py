@@ -1,15 +1,17 @@
 import json
-from pathlib import Path
-import pickle
 import numpy as np
 import os
+from pathlib import Path
+import pickle
 from scipy import constants
+
 from NuRadioReco.framework.event import Event
 from NuRadioReco.framework.station import Station
 from NuRadioReco.framework.channel import Channel
-import NuRadioMC.utilities.medium as medium
 import NuRadioReco.modules.channelBandPassFilter
+from NuRadioReco.modules.io.eventReader import eventReader
 from NuRadioReco.utilities import units
+import NuRadioMC.utilities.medium as medium
 
 # simulation functions
 
@@ -73,11 +75,27 @@ def select_ice_model(config):
 
 # Theoretical functions
 
+def convert_to_db(gain):
+    db = 20*np.log10(gain)
+    return db
+
+def convert_error_to_db(gain_error, gain):
+    db_error = 20 * 1/(np.log(10) * gain) * gain_error
+    return db_error
+
 def reduce_by_db(variable, db):
     db_coeff = 10**(-1*db/20.)
     variable = db_coeff * variable
     return variable
 
+
+def compute_confidence_interval(samples, confidence=0.95):
+    sample_mean = np.mean(samples)
+    sample_var = np.var(samples, ddof=1) #ddof=1 to get unbiased variance (i.e. divide by n-1)
+    score = 1-confidence
+    confidence_left = sample_mean - (score * np.sqrt(sample_var))/np.sqrt(len(samples))
+    confidence_right = sample_mean + (score * np.sqrt(sample_var))/np.sqrt(len(samples))
+    return [confidence_left, confidence_right]
 
 def rms_from_temp(noise_temp_channel, detector, station, channel, include_amps=False):
     """
@@ -104,3 +122,31 @@ def rms_from_temp(noise_temp_channel, detector, station, channel, include_amps=F
 
 
 
+def read_freq_spectrum_from_pickle(path):
+    result_dictionary = read_pickle(path)
+    header = result_dictionary["header"]
+    frequencies = result_dictionary["freq"]
+    frequency_spectrum = result_dictionary["frequency_spectrum"]
+    var_frequency_spectrum = result_dictionary["var_frequency_spectrum"]
+    return {"frequencies" : frequencies,
+            "spectrum" : frequency_spectrum,
+            "var_spectrum" : var_frequency_spectrum,
+            "header" : header}
+
+
+
+def read_freq_spectrum_from_nur(files : list, return_phase=False):
+    event_reader = eventReader()
+    event_reader.begin(files)
+    spec = []
+    for event in event_reader.run():
+        station = event.get_station()
+        spec_channel = []
+        for channel in station.iter_channels():
+            frequency_spectrum = channel.get_frequency_spectrum()
+            if not return_phase:
+                spec_channel.append(np.abs(frequency_spectrum))
+            else:
+                spec_channel.append(frequency_spectrum)
+        spec.append(spec_channel)
+    return np.array(spec)

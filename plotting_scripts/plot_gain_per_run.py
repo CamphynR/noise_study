@@ -5,6 +5,7 @@ import glob
 from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 import pickle
 import scipy.interpolate as interpolate
 
@@ -66,6 +67,11 @@ if __name__ == "__main__":
     electronic_temperature = config["electronic_temperature"]
 
 
+    spectrum_fitter = spectrumFitter(args.data[0], args.sims)
+    season = spectrum_fitter.data_header["begin_time"].strftime("%Y")[0]
+    save_folder=f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/system_amplitude_calibration/season{season}/station{station_id}/results_per_run"
+    os.makedirs(save_folder, exist_ok=True) 
+
     
     if args.channels is None:
         channel_ids = np.arange(24)
@@ -76,10 +82,15 @@ if __name__ == "__main__":
     gain_errors = [[] for i in channel_ids]
     for i, data in enumerate(args.data):
         print(f"fitting {i+1}/{len(args.data)}")
+        run = data.split("run", 1)[-1].split(".pickle")[0]
+        print(run)
         time = read_time(data)
         times.append(time)
         spectrum_fitter = spectrumFitter(data, args.sims)
-        fit_results = spectrum_fitter.get_fit_gain(mode="electronic_temp", choose_channels=channel_ids)
+        filename = f"absolute_amplitude_calibration_season{season}_st{station_id}_run{run}.csv"
+        fit_results = spectrum_fitter.save_fit_results(mode="electronic_temp",
+                                                       save_folder=save_folder,
+                                                       filename=filename, extended=True)
         for channel_id in channel_ids:
             fit_params = fit_results[channel_id]
             gains[channel_id].append(fit_params[0].value)
@@ -96,7 +107,7 @@ if __name__ == "__main__":
     gains_db = convert_to_db(gains)
     
 
-    temp_path = glob.glob(f"station_temperatures/season2023/housekeepingdata_st{station_id}_*")[0]
+    temp_path = glob.glob(f"station_temperatures/remote1/season2023/housekeepingdata_st{station_id}_*")[0]
     temp_time, temperature = read_temperatures(temp_path, times)
 
     nr_xticks = 10
@@ -127,3 +138,11 @@ if __name__ == "__main__":
         fig.savefig(pdf, format="pdf")
         plt.close()
     pdf.close()
+
+
+    #----------- Distributions ---------------------------------------------------
+
+    print(gains.shape)
+    fig, ax = plt.subplots()
+    ax.hist(gains[0])
+    plt.savefig("test")

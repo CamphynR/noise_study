@@ -153,7 +153,6 @@ if __name__ == "__main__":
                         default = 23)
     parser.add_argument("-r", "--run",
                         default = None)
-    parser.add_argument("--debug", action = "store_true")
     
     parser.add_argument("--config", help = "path to config.json file", default = "configs/config.json")
     parser.add_argument("--filename_appendix", default = "")
@@ -162,6 +161,7 @@ if __name__ == "__main__":
     parser.add_argument("--test", action = "store_true", help = "enables test mode, which only uses one run of data ")
     parser.add_argument("--nr_batches", type=int, default=None, help="only for data, sims are fast enough")
     parser.add_argument("--batch_i", type=int, default=None, help="Only for data, sims are fast enough")
+    parser.add_argument("--name_appendix", default=None)
     args = parser.parse_args()
 
 
@@ -169,7 +169,7 @@ if __name__ == "__main__":
         config = json.load(config_json)
 
 
-    log_level = logging.DEBUG if args.debug else logging.CRITICAL
+    log_level = logging.DEBUG if args.test else logging.CRITICAL
     logging.basicConfig(level = log_level)
     logger = logging.getLogger(__name__)
 
@@ -187,8 +187,9 @@ if __name__ == "__main__":
     det.update(Time(config["detector_time"]))
     
 
-    broken_runs = read_broken_runs(config['broken_runs_dir'] + f"/station{args.station}.pickle")
-    broken_runs_list = [int(run) for run in broken_runs.keys()]
+    if not config["simulation"]:
+        broken_runs = read_broken_runs(config['broken_runs_dir'] + f"/station{args.station}.pickle")
+        broken_runs_list = [int(run) for run in broken_runs.keys()]
 
     if args.data_dir is None:
         data_dir = os.environ["RNO_G_DATA"]
@@ -277,7 +278,8 @@ if __name__ == "__main__":
     function = functions[config["variable"]]
     t0 = time.time()
     for i, reader in enumerate(rnog_reader):
-        output = parse_data(reader, det, config=config, args=args, logger=logger, calculation_function=function, folder_appendix=folder_appendix[i])
+        appendix = folder_appendix[i] if args.name_appendix is None else folder_appendix[i] + "_" + args.name_appendix
+        output = parse_data(reader, det, config=config, args=args, logger=logger, calculation_function=function, folder_appendix=appendix)
     dt = time.time() - t0
 
     if np.any([run_file.endswith(".root") for run_file in run_files]):

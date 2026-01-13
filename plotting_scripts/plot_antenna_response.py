@@ -12,13 +12,41 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--station", "-s", type=int, default=11)
     parser.add_argument("--channel", "-c", type=int, default=0)
+    parser.add_argument("--antenna_model", type=str, default=None)
     args = parser.parse_args()
     
 
 
+    detector = Detector(select_stations=args.station)
+    detector_time = datetime.datetime(2023,12,31)
+    detector.update(detector_time)
+
+
+    if args.channel == 101 or args.antennamodel is not None:
+        args.channel = 101
+        antenna_model = args.antenna_model
+
+        antenna_test_types = {"vpol" : 0, "hpol" : 4, "LPDA" : 12}
+        args.channel = 0
+        for key in antenna_test_types:
+            if key in antenna_model:
+                args.channel = antenna_test_types[key]
+        
+    else:
+        det_channel = args.channel        
+        antenna_model = detector.get_antenna_model(args.station, args.channel)
+
+    orientation = detector.get_antenna_orientation(args.station, args.channel)
+    print(antenna_model)
+
+    antenna_provider = AntennaPatternProvider()
+    antenna_pattern = antenna_provider.load_antenna_pattern(antenna_model)
+#    antenna_pattern = antenna_provider.load_antenna_pattern("createLPDA_100MHz_z1cm_InFirn_RG")
+
     channel_mapping = {"VPol" : [0, 1, 2, 3, 6, 7, 9, 10, 22, 23],
                        "HPol" : [4, 8, 11, 21],
-                       "LPDA" : [12, 13, 14, 15, 16, 17, 18, 19, 20]}
+                       "LPDA" : [12, 13, 14, 15, 16, 17, 18, 19, 20],
+                       "test" : [101]}
 
 
         
@@ -27,28 +55,19 @@ if __name__ == "__main__":
                       "HPol" : "RNOG_hpol_v4_8inch_center_n1.74",
                       "LPDA" : "createLPDA_100MHz_InfFirn_n1.4"}
     
-    detector = Detector(select_stations=args.station)
-    detector_time = datetime.datetime(2023,12,31)
-    detector.update(detector_time)
 
 
-    antenna_model = detector.get_antenna_model(args.station, args.channel)
-    print(antenna_model)
-    orientation = detector.get_antenna_orientation(args.station, args.channel)
 
-    antenna_provider = AntennaPatternProvider()
-    antenna_pattern = antenna_provider.load_antenna_pattern(antenna_model, interpolation_method="complex")
-#    antenna_pattern = antenna_provider.load_antenna_pattern("createLPDA_100MHz_z1cm_InFirn_RG")
 
     zeniths = np.linspace(0 * units.degree, 180 * units.degree, 45)
 
     if args.channel in channel_mapping["VPol"]:
         zenith_max = 90 * units.degree
-        freqs = np.linspace(0 * units.MHz, 1000 * units.MHz, 100)
+        freqs = np.linspace(0 * units.MHz, 1000 * units.MHz, 200)
         pol = "theta"
     elif args.channel in channel_mapping["HPol"]:
         zenith_max = 60 * units.degree
-        freqs = np.linspace(0 * units.MHz, 1000 * units.MHz, 100)
+        freqs = np.linspace(0 * units.MHz, 1000 * units.MHz, 200)
         pol = "phi"
     else:
         zenith_max = orientation[0]
@@ -105,7 +124,7 @@ if __name__ == "__main__":
     ax.plot(freqs/units.MHz, VELs[zenith_idx, 0, pol_idx])
     ax.set_xlabel("freq / MHz")
     ax.set_ylabel("VEL / a.u.")
-    ax.set_title("VEL sliced")
+    ax.set_title(antenna_model)
     fig.savefig(f"figures/tests/antenna_vel_ch_{args.channel}_sliced", bbox_inches="tight")
 
 

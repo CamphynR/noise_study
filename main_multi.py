@@ -102,7 +102,6 @@ if __name__ == "__main__":
                         default = 23)
     parser.add_argument("-r", "--run",
                         default = None)
-    parser.add_argument("--debug", action = "store_true")
     
     parser.add_argument("--config", help = "path to config.json file", default = "configs/config.json")
     parser.add_argument("--select_runs_path", help = "path to select_runs json file", default=None)
@@ -116,7 +115,7 @@ if __name__ == "__main__":
 
 
     logger = logging.getLogger(__name__)
-    log_level = logging.WARNING if args.debug else logging.CRITICAL
+    log_level = logging.WARNING if args.test else logging.CRITICAL
     logging.basicConfig(level = log_level)
 
     with open(args.config, "r") as config_json:
@@ -142,6 +141,7 @@ if __name__ == "__main__":
 
 
 
+
     selectors = [lambda event_info : event_info.triggerType == "FORCE"]
 
     if len(config["run_time_range"]) == 0:
@@ -154,11 +154,11 @@ if __name__ == "__main__":
     mattak_kw = config["mattak_kw"]
 
     def batch_process(batch_i):
-        print(root_dirs)
         root_dirs_batch = root_dirs[batch_i]
         if args.test:
-            root_dirs_batch = root_dirs_batch[:3]
-        print(root_dirs_batch)
+            root_dirs_batch = root_dirs_batch[:1]
+        if args.run:
+            root_dirs_batch = [root_dirs_batch]
         # save per run
         for root_dir in root_dirs_batch:
             run_nr = os.path.basename(root_dir).split("run")[-1]
