@@ -7,9 +7,14 @@ It also includes code used to construct data-driven rayleigh noise
 
 # Disclaimer
 
+### Running the code
+
 Be careful when running the code out of the box. Files are saved to the /tmp folder before being copied to the given save_dir (due to the HTCondor cluster on which this code is used)
 So your /tmp folder could max out which is not good!
 
+### Storage
+
+This repo contains a full copy of the working environment in which this calibration was produced, including .png, .pdf and .json files. Be careful when cloning the repo as it might be quite big.
 
 ## Calibration
 
