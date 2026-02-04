@@ -1,0 +1,28 @@
+{
+    "save_dir" : "/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study",
+    "broken_runs_dir" : "/user/rcamphyn/noise_study/broken_runs",
+    "variable" : "average_ft",
+    "variable_function_kwargs" : {
+        "clean" : {},
+        "raw" : {}},
+
+    "only_mean" : 0,
+
+    "save" : 1,
+    "savename" : "",
+
+    "cleaning":{
+        "channelBandpassFilter" : {"begin_kwargs" : {}, "run_kwargs" : {"passband" : [0.1, 0.7], "filter_type" : "butter", "order" : 10}},
+        "channelSinewaveSubtraction" : {"begin_kwargs" : {}, "run_kwargs" : {"peak_prominence" : 4}}
+    },
+
+    "calibration" : {"11": "full", "12" : "full", "13" : "full", "21" : "full", "22" : "full", "23" : "full", "24" : "full"},
+    "mattak_kw" : {"backend" : "uproot",
+                    "read_daq_status" : 0,
+                    "read_run_info" : 0,
+                    "cache_calibration" : 0},
+
+    "detector_time" : "2024-01-02",
+    "run_time_range" : ["2024-01-01", "2024-12-31"],
+    "max_trigger_rate" : 2
+}

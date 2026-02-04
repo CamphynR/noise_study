@@ -1,0 +1,27 @@
+{
+    "save_dir" : "/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study",
+    "broken_runs_dir" : "/user/rcamphyn/noise_study/broken_runs",
+    "variable" : "spec_hist",
+    "variable_function_kwargs" : {
+        "clean" : {"hist_range" : [0.0, 1.5], "nr_bins" : 128},
+        "raw" : {"hist_range": [0.0, 1.5], "nr_bins" : 128}},
+
+    "only_mean" : 0,
+
+    "save" : 1,
+    "savename" : "",
+
+    "cleaning":{
+        "channelBandpassFilter" : {"begin_kwargs" : {}, "run_kwargs" : {"passband" : [0.1, 0.7], "filter_type" : "butter", "order" : 10}}
+    },
+
+    "calibration" : {"11": "full", "12" : "full", "13" : "full", "21" : "full", "22" : "full", "23" : "full", "24" : "full"},
+    "mattak_kw" : {"backend" : "uproot",
+                    "read_daq_status" : 0,
+                    "read_run_info" : 0,
+                    "cache_calibration" : 1},
+
+    "detector_time" : "2023-08-01",
+    "run_time_range" : ["2023-01-01", "2023-12-31"],
+    "max_trigger_rate" : 2
+}

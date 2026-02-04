@@ -1,0 +1,28 @@
+{
+    "save_dir" : "/user/rcamphyn/noise_study/data",
+    "broken_runs_dir" : "/user/rcamphyn/noise_study/broken_runs",
+    "variable" : "rms",
+    "variable_function_kwargs" : {
+        "clean" : {},
+        "raw" : {},
+
+    "only_mean" : 0,
+
+    "save" : 1,
+    "savename" : "",
+
+    "cleaning":{
+        "channelBandpassFilter" : {"begin_kwargs" : {}, "run_kwargs" : {"passband" : [0.2, 0.6]}},
+        "hardwareResponseIncorporator": {"begin_kwargs": {}, "run_kwargs" : {"mingainlin" : 0.1}},
+        "cwFilter": {"begin_kwargs" : {}, "run_kwargs" : {}}
+    },
+
+    "calibration" : {"11": "linear", "12" : "linear", "13" : "linear", "21" : "linear", "22" : "linear", "23" : "linear", "24" : "linear"},
+
+    "detector_time" : "2022-08-01",
+    "run_time_range" : ["2022-01-01", "2022-10-31"],
+    "skip_runs" : {"11" : [49,50,51,52,53,54,55,56,57,58], "12" : [], "13" : [], "14" : [], "21" : [10, 1025, 1026, 1076, 1077, 1078, 11, 1164, 1165, 1399, 1400, 1403, 1439, 1440, 15, 1566, 1567], "22" : [0, 17], "23" : [], "24" : []},
+
+    "sample_rate" : 3.2e9,
+    "nr_of_samples" : 2048
+}

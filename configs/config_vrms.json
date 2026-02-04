@@ -1,0 +1,27 @@
+{
+    "save_dir" : "/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study",
+    "broken_runs_dir" : "/user/rcamphyn/noise_study/broken_runs",
+    "variable" : "vrms",
+    "variable_function_kwargs" : {
+        "clean" : {},
+        "raw" : {}},
+
+    "only_mean" : 0,
+
+    "save" : 1,
+    "savename" : "",
+
+    "cleaning":{
+        "channelSinewaveSubtraction" : {"begin_kwargs" : {}, "run_kwargs" : {"peak_prominence" : 4}}
+    },
+
+    "calibration" : {"11": "linear", "12" : "linear", "13" : "linear", "21" : "linear", "22" : "linear", "23" : "linear", "24" : "linear"},
+    "mattak_kw" : {"backend" : "uproot",
+                    "read_daq_status" : 0,
+                    "read_run_info" : 0,
+                    "cache_calibration" : 0},
+
+    "detector_time" : "2023-08-01",
+    "run_time_range" : ["2023-01-01", "2023-12-31"],
+    "max_trigger_rate" : 2
+}

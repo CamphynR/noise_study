@@ -1,0 +1,20 @@
+{
+    "variable" : "rms",
+    "only_mean" : 0,
+
+    "save" : 1,
+    "savename" : "rms_s23_nodetremoval_mean",
+
+    "cleaning":{
+        "channelBandpassFilter" : {"begin_kwargs" : {}, "run_kwargs" : {"passband" : [0.2, 0.6]}},
+        "cwFilter": {"begin_kwargs" : {}, "run_kwargs" : {}}
+    },
+
+    "calibration" : "linear",
+
+    "detector_time" : "2022-08-01",
+    "run_time_range" : [],
+
+    "sample_rate" : 3.2e9,
+    "nr_of_samples" : 2048
+}

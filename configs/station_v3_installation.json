@@ -1,0 +1,17 @@
+{   "11" : [{"date" : "25-07-2024",
+            "comment" : "New instrument box and power system, see station sheet"}],
+    "12" : [{"date" : "26-06-2024",
+            "comment" : "New Instrument box, see station sheet (internal temperature shows dip in grafana on this date"},
+            {"date": "07-07-2024",
+            "comment" : "New DAQ installed, see station sheet (internal temperature shows dip in grafana on this date"}],
+    "13" : [{"date": "14-07-2024",
+            "comment" : "New instrument box (new RADIANT?)"}],
+    "21" : [{"date" : "08-07-2024",
+             "comment" : "New instrument box (and RADIANTv3), see field report 8 July 2024"}],
+    "22" : [{"date" : "08-07-2024",
+            "comment" : "New instruments, instrument box repurposed from station 23, see field report 8 July 2024"}],
+    "23" : [{"date" : "11-07-2024",
+            "comment" : "New box on 12-08-2024, they had to wait for cables but this whole period (~1 week) there was no data taking, data taking started evening 12-08"}],
+    "24" : [{"date" : "",
+            "comment" : }]
+}

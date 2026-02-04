@@ -1,0 +1,26 @@
+{
+    "save_dir" : "/mnt/rno-g-0/felix/ruben/data/noise_study",
+    "broken_runs_dir" : "/home/rcamphyn/noise_study/broken_runs",
+    "variable" : "spec_hist",
+    "variable_function_kwargs" : {
+        "clean" : {"hist_range" : [0.0, 1.0], "nr_bins" : 128},
+        "raw" : {"hist_range": [0.0, 1.0], "nr_bins" : 128}},
+
+    "only_mean" : 0,
+
+    "save" : 1,
+    "savename" : "",
+
+    "cleaning":{
+    },
+
+    "calibration" : {"11": "linear", "12" : "linear", "13" : "linear", "21" : "linear", "22" : "linear", "23" : "linear", "24" : "linear"},
+    "mattak_kw" : {"backend" : "uproot",
+                    "read_daq_status" : 0,
+                    "read_run_info" : 0,
+                    "cache_calibration" : 1},
+
+    "detector_time" : "2023-08-01",
+    "run_time_range" : ["2023-01-01", "2023-12-31"],
+    "max_trigger_rate" : 2
+}

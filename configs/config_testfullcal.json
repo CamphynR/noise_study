@@ -1,0 +1,23 @@
+{
+    "save_dir" : "/user/rcamphyn/noise_study/data",
+    "variable" : "rms",
+    "only_mean" : 0,
+
+    "save" : 1,
+    "savename" : "",
+
+    "cleaning":{
+        "channelBandpassFilter" : {"begin_kwargs" : {}, "run_kwargs" : {"passband" : [0.2, 0.6]}},
+        "hardwareResponseIncorporator": {"begin_kwargs": {}, "run_kwargs" : {"mingainlin" : 0.1}},
+        "cwFilter": {"begin_kwargs" : {}, "run_kwargs" : {}}
+    },
+
+    "calibration" : "full",
+
+    "detector_time" : "2022-08-01",
+    "run_time_range" : ["2022-01-01", "2022-10-31"],
+    "skip_runs" : {"11" : [49,50,51,52,53,54,55,56,57,58], "12" : [], "13" : [], "14" : [], "21" : [], "22" : [], "23" : [], "24" : []},
+
+    "sample_rate" : 3.2e9,
+    "nr_of_samples" : 2048
+}
