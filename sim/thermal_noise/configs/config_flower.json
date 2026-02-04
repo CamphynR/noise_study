@@ -1,0 +1,20 @@
+{
+    "save_dir" : "/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study",
+    "sim_library_dir" : "/user/rcamphyn/noise_study/sim/library",
+    "include_det_signal_chain" : 0,
+
+    "digitizer" : "flower",
+    "season" : 2024,
+
+
+    "channels_to_include" : [0, 1, 2, 3],
+    "noise_sources" : ["ice", "electronic", "galactic"],
+    "include_sum" : 0,
+    "electronic_temperature" : 80,
+    "use_s_param_hardware_response" : 0,
+    "antenna_models" : {
+        "VPol" : "RNOG_vpol_v3_5inch_center_n1.74",
+        "HPol" : "RNOG_hpol_v4_8inch_center_n1.74",
+        "LPDA" : "createLPDA_100MHz_InfFirn_n1.4"}
+
+}
