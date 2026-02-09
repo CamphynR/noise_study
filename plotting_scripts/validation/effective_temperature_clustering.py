@@ -4,6 +4,7 @@ from NuRadioReco.utilities import units, signal_processing, fft
 
 import argparse
 import datetime as dt
+import json
 from matplotlib import pyplot as plt
 import numpy as np
 import os
@@ -74,6 +75,9 @@ if __name__ == "__main__":
     print("done reading pnfs")
 
 
+    save_dir = "/user/rcamphyn/noise_study/effective_temperatures"
+
+
     # INTERSECT AND PLOT
 
     temperatures = np.linspace(100, 600, 10) # Kelvin
@@ -114,6 +118,10 @@ if __name__ == "__main__":
         axs = np.ndarray.flatten(axs)
         fig_validation, axs_validation = plt.subplots(*ax_shape, figsize=figsize)
         axs_validation = np.ndarray.flatten(axs_validation)  
+
+        
+        eff_temps = {}
+
         for channel_set_index, (channel_set_name, channel_ids) in enumerate(channel_id_sets.items()):
 
             print(channel_set_name)
@@ -146,6 +154,7 @@ if __name__ == "__main__":
                 if min(vrms) < vrms_min:
                     vrms_min = min(vrms)
 
+                eff_temps[channel_id] = eff_temp
 
                     
                 # validation
@@ -200,6 +209,15 @@ if __name__ == "__main__":
             ax_validation.set_xlabel("Vrms / mV")
             ax_validation.set_ylabel("normalized counts")
             ax_validation.set_title(channel_set_name)
+
         fig.tight_layout()
         fig.savefig(f"figures/effective_temperatures/eff_temperature_season{season}_st{station_id}.png")
         fig_validation.savefig(f"figures/effective_temperatures/eff_temperature_validation_season{season}_st{station_id}.png")
+
+
+
+        filename = f"eff_temperatures_calibrated_response_season{season}_st{station_id}.json"
+        save_path = os.path.join(save_dir, filename)
+
+        with open(save_path, "w") as file:
+            json.dump(eff_temps, file)

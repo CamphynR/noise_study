@@ -3,6 +3,7 @@ from NuRadioReco.modules.channelGenericNoiseAdder import channelGenericNoiseAdde
 from NuRadioReco.utilities import units, signal_processing, fft
 
 import datetime as dt
+import json
 from matplotlib import pyplot as plt
 import numpy as np
 import os
@@ -61,6 +62,11 @@ vrms_hist_station = [read_pickle(vrms_hist_path) for vrms_hist_path in vrms_hist
 print("done reading pnfs")
 
 
+# SAVE DIRECTORY
+
+save_dir = "/user/rcamphyn/noise_study/effective_temperature"
+
+
 # INTERSECT AND PLOT
 
 temperatures = np.linspace(200, 600, 10) # Kelvin
@@ -92,6 +98,8 @@ for station_index, station_id in enumerate(station_ids):
     axs = np.ndarray.flatten(axs)
     fig_validation, axs_validation = plt.subplots(*ax_shape, figsize=figsize)
     axs_validation = np.ndarray.flatten(axs_validation)  
+
+    eff_temps = {}
     for channel_set_index, (channel_set_name, channel_ids) in enumerate(channel_id_sets.items()):
         print(channel_set_name)
         ax = axs[channel_set_index]
@@ -114,6 +122,8 @@ for station_index, station_id in enumerate(station_ids):
                 vrms_max = max(vrms)
             if min(vrms) < vrms_min:
                 vrms_min = min(vrms)
+            
+            eff_temps[channel_id] = eff_temp
 
 
                 
@@ -149,7 +159,7 @@ for station_index, station_id in enumerate(station_ids):
     #                label=f"channel {channel_id} sim") 
 
             
-
+        
         
 
         
@@ -169,6 +179,13 @@ for station_index, station_id in enumerate(station_ids):
         ax_validation.set_xlabel("Vrms / mV")
         ax_validation.set_ylabel("normalized counts")
         ax_validation.set_title(channel_set_name)
+
     fig.tight_layout()
     fig.savefig(f"figures/effective_temperatures/eff_temperature_season{season}_st{station_id}.png")
     fig_validation.savefig(f"figures/effective_temperatures/eff_temperature_validation_season{season}_st{station_id}.png")
+
+
+    filename = f"eff_temperatures_season{season}_station{station_id}.json"
+    save_path = os.path.join(save_dir, filename)
+    with open(save_path, "w") as file:
+        json.dump(eff_temps, file)
