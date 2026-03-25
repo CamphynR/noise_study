@@ -230,13 +230,7 @@ def calculate_average_fft(reader, detector, config, args, logger, directory, cle
         sampling_rate = digitizer_settings["sampling_rate"]
     else:
         station_info = detector.get_station(station_id)
-        # temperory until 2024 det is added to database
-        date = datetime.date.fromisoformat(config["run_time_range"][0])
-        sampl_rate_date = datetime.date.fromisoformat("2023-12-31")
-        if date > sampl_rate_date :
-            sampling_rate = 2.4 * units.GHz
-        else:
-            sampling_rate = station_info["sampling_rate"]
+        sampling_rate = station_info["sampling_rate"]
         nr_channels = len(station_info["channels"])
         nr_samples = station_info["number_of_samples"]
 
@@ -252,6 +246,7 @@ def calculate_average_fft(reader, detector, config, args, logger, directory, cle
     nr_events = 0
     for event in reader.run():
         station = event.get_station(args.station)
+        detector.update(station.get_station_time())
         if args.test:
 #            print(event.get_id())
             print(nr_events)
@@ -279,7 +274,9 @@ def calculate_average_fft(reader, detector, config, args, logger, directory, cle
         for channel in station.iter_channels():
             channel_id = channel.get_id()
             ch_frequencies = channel.get_frequencies()
-            assert np.all(frequencies == ch_frequencies)
+            assert np.all(frequencies == ch_frequencies), \
+                    "channel frequencies do not match starting frequency,\
+                    make sure you are not crossing the sampling rate changes with your chosen data period"
 
             # we take the mean as sqrt(mean(spectrum**2)) this preserves the energy of the spectra
             # i.e. energy(mean_spectrum) = mean(energy_spectra)
@@ -371,13 +368,7 @@ def calculate_average_fft_old(reader, detector, config, args, logger, directory,
         sampling_rate = digitizer_settings["sampling_rate"]
     else:
         station_info = detector.get_station(station_id)
-        # temperory until 2024 det is added to database
-        date = datetime.date.fromisoformat(config["run_time_range"][0])
-        sampl_rate_date = datetime.date.fromisoformat("2023-12-31")
-        if date > sampl_rate_date :
-            sampling_rate = 2.4 * units.GHz
-        else:
-            sampling_rate = station_info["sampling_rate"]
+        sampling_rate = station_info["sampling_rate"]
         nr_channels = len(station_info["channels"])
         nr_samples = station_info["number_of_samples"]
 
@@ -708,7 +699,7 @@ def populate_vrms_histogram(reader, detector, config, args, logger, directory, c
 
 
 
-def collect_traces(reader, detector, config, args, logger, directory, cleaning_modules, max_nr_events=1000):
+def collect_traces(reader, detector, config, args, logger, directory, cleaning_modules, channel_ids=np.arange(24), max_nr_events=1000):
     station_id = args.station
     station_info = detector.get_station(station_id)
     nr_channels = len(station_info["channels"])
@@ -725,11 +716,15 @@ def collect_traces(reader, detector, config, args, logger, directory, cleaning_m
         
         if clean_data:
             for cleaning_key in cleaning_modules.keys():
-                cleaning_modules[cleaning_key].run(event, station, detector,
-                                                   **config["cleaning"][cleaning_key]["run_kwargs"])
+                if cleaning_key.endswith("_sec"):
+                    cleaning_key_stripped = cleaning_key.split("_")[0]
+                    run_kw = config["cleaning"][cleaning_key_stripped]["run_kwargs"]
+                else:
+                    cleaning_modules[cleaning_key].run(event, station, detector,
+                                                       **config["cleaning"][cleaning_key]["run_kwargs"])
         trace_ch = []
-        for channel in station.iter_channels():
-            channel_id = channel.get_id()
+        for channel_id in channel_ids:
+            channel = station.get_channel(channel_id)
             trace = channel.get_trace()
             trace_ch.append(trace)
         traces.append(trace_ch)
@@ -739,7 +734,8 @@ def collect_traces(reader, detector, config, args, logger, directory, cleaning_m
     traces = np.array(traces)
 
     
-    header = {"nr_events" : nr_events}
+    header = {"nr_events" : nr_events,
+              "channels" : channel_ids}
     result_dict = {"header" : header,
                    "time" : station.get_station_time(),
                    "traces" : traces}
