@@ -65,12 +65,16 @@ if __name__ == "__main__":
         frequency_spectrum_prev = combine_mean(frequency_spectrum_prev, frequency_spectrum,
                                               nr_events_prev, nr_events)
         begin_time_prev, end_time_prev = combine_times(begin_time_prev, end_time_prev, header["begin_time"], header["end_time"])
-        nr_events_prev += nr_events 
+        nr_events_prev += nr_events
 
-        prev_month = header_prev["begin_time"][0].datetime.month
-        month = header["begin_time"][0].datetime.month
+        try:
+            prev_month = header_prev["begin_time"][0].datetime.month
+            month = header["begin_time"][0].datetime.month
+        except:
+            prev_month = header_prev["begin_time"].datetime.month
+            month = header["begin_time"].datetime.month
         if prev_month != month:
-            print("New month, saving \n ----------")
+            print("New month, saving \n----------------")
             result_dictionary = read_pickle(args.pickles[0])
             result_dictionary["frequency_spectrum"] = frequency_spectrum_prev
             result_dictionary["var_frequency_spectrum"] = var_frequency_spectrum_prev
