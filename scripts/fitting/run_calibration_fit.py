@@ -17,7 +17,9 @@ from modules.systemResponseTimeDomainIncorporator import systemResponseTimeDomai
 from utilities.utility_functions import read_freq_spectrum_from_pickle, convert_to_db
 
 
-
+# GOF FUNCTIONS USED TO SELECT A RESPONSE TEMPLATE
+# note that the cost function of the fit itself is always Minuit's LeastSquares,
+# the cost function can be changed in the spectrumFitter's begin function 
 def calculate_reduced_chi2(spectrum_1, spectrum_2, var_1, frequencies, freq_range):
     mask = (frequencies > freq_range[0]) & (frequencies < freq_range[1])
     spectrum_1 = np.abs(spectrum_1[mask])
@@ -40,15 +42,23 @@ def calculate_area_difference(spectrum_1, spectrum_2, var_1, frequencies, freq_r
     return np.abs(area_1 - area_2)
 
 
+
 if __name__ == "__main__":
+    """
+    This is the master calibration code, it uses the spectrumFitter class to
+    save the callibration coefficients.
+    """
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--season", type=int, default=2024)
     parser.add_argument("--station", "-s", type=int, default=12)
-    parser.add_argument("--fname_appendix", default=None) 
+    parser.add_argument("--fname_appendix", default=None,
+                        help="any files and plots will append this to their name") 
     args = parser.parse_args()
 
 
     # SETTINGS
+    # these are saved in a json file for posterity
     channel_mapping = {
         "deep" : [0, 1, 2, 3],
         "helper" : [4, 5, 6, 7, 8, 9, 10, 11, 21, 22, 23],

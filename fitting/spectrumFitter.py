@@ -58,6 +58,7 @@ class spectrumFitter:
                  fit_range=[0.25, 0.6],
                  bandpass=None, bandpass_type="butter",
                  system_response=None,
+                 cost_function = None,
                  fit_function_parameter_guesses=None,
                  include_impedance_mismatch_correction=False,
                  goodness_of_fit_function=calculate_reduced_chi2,
@@ -217,7 +218,11 @@ class spectrumFitter:
         self.bandpass_type = bandpass_type
 
         self.fit_function_parameter_guesses = fit_function_parameter_guesses
-        self.cost_function = LeastSquares
+
+        if cost_function is None:
+            self.cost_function = LeastSquares
+        else:
+            self.cost_function = cost_function
 
 
 
