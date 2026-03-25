@@ -90,8 +90,6 @@ if __name__ == "__main__":
                                "area_diff" : calculate_area_difference}
     goodness_of_fit_variable = "reduced_chi2"
 
-    include_impedance_mismatch_correction = False
-
 #    mode = "electronic_temp_cross"
     mode = "constant"
     parameter_limits = [(0, None)]

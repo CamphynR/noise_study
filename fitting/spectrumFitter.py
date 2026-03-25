@@ -60,7 +60,6 @@ class spectrumFitter:
                  system_response=None,
                  cost_function = None,
                  fit_function_parameter_guesses=None,
-                 include_impedance_mismatch_correction=False,
                  goodness_of_fit_function=calculate_reduced_chi2,
                  remove_cable=True,
                  cable_length=11):
@@ -72,10 +71,8 @@ class spectrumFitter:
             the module can accept a system response to apply to the simulations
         """
 
-
         config_path = find_config(sim_paths[0], sim=True)
         self.config = read_config(config_path)
-
 
 
         vpols = [0, 1, 2, 3, 5, 6, 7, 9, 10, 22, 23]
@@ -83,15 +80,6 @@ class spectrumFitter:
         lpdas = [12, 13, 14, 15, 16, 17, 18, 19, 20]    
 
 
-        if include_impedance_mismatch_correction:
-            impedance_mismatch_correction_path = "sim/library/impedance-matching-correction-factors.npz"
-            impedance_mismatch_correction_npz = np.load(impedance_mismatch_correction_path)
-            
-            impedance_mismatch_correction = {}
-            impedance_mismatch_correction["VPol"] = interp1d(impedance_mismatch_correction_npz["frequencies"], np.abs(impedance_mismatch_correction_npz["vpol"]), bounds_error=False, fill_value=1.) 
-            impedance_mismatch_correction["HPol"] = interp1d(impedance_mismatch_correction_npz["frequencies"], np.abs(impedance_mismatch_correction_npz["hpol"]), bounds_error=False, fill_value=1.) 
-
-        
         self.channels_to_include = self.config["channels_to_include"]
 
         self.sampling_rate = sampling_rate
@@ -135,13 +123,6 @@ class spectrumFitter:
                 if i == 1 and remove_cable:
                     for channel_id in lpdas:
                         sim_spectrum_i[channel_id] = sim_spectrum_i[channel_id] / self.cable_response / self.cable_response
-            if include_impedance_mismatch_correction and i != 1:
-                for channel_id in vpols:
-                    sim_spectrum_i[channel_id] = sim_spectrum_i[channel_id] * impedance_mismatch_correction["VPol"](sim_frequencies_i)
-                    sim_var_spectrum_i[channel_id] = sim_var_spectrum_i[channel_id] * impedance_mismatch_correction["VPol"](sim_frequencies_i)**2
-                for channel_id in hpols:
-                    sim_spectrum_i[channel_id] = sim_spectrum_i[channel_id] * impedance_mismatch_correction["HPol"](sim_frequencies_i)
-                    sim_var_spectrum_i[channel_id] = sim_var_spectrum_i[channel_id] * impedance_mismatch_correction["HPol"](sim_frequencies_i)**2
             self.sim_spectra.append(sim_spectrum_i)
             self.sim_var_spectra.append(sim_var_spectrum_i)
             self.sim_headers.append(sim_header)
@@ -162,11 +143,6 @@ class spectrumFitter:
                 if cross_i in [0, 2] and remove_cable:
                     for channel_id in lpdas:
                         self.cross_products[cross_i][channel_id] = self.cross_products[cross_i][channel_id] / self.cable_response
-                if include_impedance_mismatch_correction:
-                    for channel_id in vpols:
-                        self.cross_products[cross_i][channel_id] = self.cross_products[cross_i][channel_id] * impedance_mismatch_correction["VPol"](sim_frequencies_i)
-                    for channel_id in hpols:
-                        self.cross_products[cross_i][channel_id] = self.cross_products[cross_i][channel_id] * impedance_mismatch_correction["HPol"](sim_frequencies_i)
 
             
             for channel_id in self.channels_to_include: 
