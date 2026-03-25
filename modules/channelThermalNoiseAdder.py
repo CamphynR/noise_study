@@ -22,6 +22,119 @@ from NuRadioReco.utilities import units
 logger = logging.getLogger('NuRadioReco.channelThermalNoiseAdder')
 
 
+def structure_pickle_antenna_pattern(antenna_pattern):
+    t0 = datetime.datetime.now()
+    max_freq = 1.6
+    (   ori_theta,
+        ori_phi,
+        rot_theta,
+        rot_phi,
+        frequencies,
+        thetas,
+        phis,
+        RVEL_phi,
+        RVEL_theta,
+    ) = antenna_pattern
+    thetas_unique = np.unique(thetas)
+    phis_unique = np.unique(phis)
+    frequencies_unique = np.unique(frequencies)
+    max_freq_index = frequencies_unique <= max_freq
+    RVEL_theta = np.array(RVEL_theta)
+    RVEL_phi = np.array(RVEL_phi)
+
+    RVEL_theta_new = np.zeros((len(thetas_unique), len(phis_unique),
+                               len(frequencies_unique[max_freq_index])),
+                              dtype=np.complex64)
+    RVEL_phi_new = np.zeros((len(thetas_unique),
+                             len(phis_unique),
+                             len(frequencies_unique[max_freq_index])),
+                            dtype=np.complex64)
+
+    for zen_idx, zen in enumerate(thetas_unique):
+        for azi_idx, azi in enumerate(phis_unique):
+            for freq_idx, freq in enumerate(frequencies_unique[max_freq_index]):
+                indices = np.where((thetas == zen) & (phis == azi) & (freq == frequencies))
+                RVEL_theta_tmp = RVEL_theta[indices][0]
+                RVEL_phi_tmp = RVEL_phi[indices][0]
+                RVEL_theta_new[zen_idx, azi_idx, freq_idx] = RVEL_theta_tmp
+                RVEL_phi_new[zen_idx, azi_idx, freq_idx] = RVEL_phi_tmp
+    t1 = datetime.datetime.now() 
+    print(t1 - t0)
+    exit()
+
+    
+    RVEL_theta = np.interp(freqs, frequencies[max_freq_index], RVEL_theta[max_freq_index])
+    RVEL_phi = np.interp(freqs, frequencies[max_freq_index], RVEL_phi[max_freq_index])
+
+
+    antenna_response["theta"] = RVEL_theta
+    antenna_response["phi"] = RVEL_phi
+    return tuple(antenna_pattern)
+
+
+
+def make_hashable(antenna_pattern):
+    for i, content in enumerate(antenna_pattern):
+        try:
+            antenna_pattern[i] = tuple(content)
+        except:
+            continue
+    antenna_pattern = tuple(antenna_pattern)
+    return antenna_pattern
+
+
+
+def check_angle_spacing(angles):
+    diff_angles = np.diff(angles)
+    #remove expected spacings
+    diff_angles = diff_angles[diff_angles!=-np.pi]
+    diff_angles = diff_angles[diff_angles!=-2*np.pi]
+    diff_angles = diff_angles[diff_angles!=0]
+
+    assert np.all(np.isclose(diff_angles, diff_angles[0], atol=1e-10)), "antenna VEL theta and signal incoming direction was not sampled at equal intervals"
+
+
+
+def get_antenna_response_from_pickle_content(antenna_pattern, freqs, zen, azi):
+    t0 = datetime.datetime.now()
+    max_freq = 1.6
+    antenna_response = {}
+
+    (   ori_theta,
+        ori_phi,
+        rot_theta,
+        rot_phi,
+        frequencies,
+        thetas,
+        phis,
+        RVEL_phi,
+        RVEL_theta,
+    ) = antenna_pattern
+    dtheta = np.diff(thetas)[0]
+    dphi = np.diff(phis)
+    dphi = dphi[dphi!=0]
+    dphi = dphi[0]
+    dfreqs = np.diff(frequencies)[0]
+    t1 = datetime.datetime.now() 
+    print(t1 - t0)
+    exit()
+
+    indices = np.where((np.isclose(thetas,zen,atol=dtheta/2.)) & (np.isclose(phis,azi,atol=dphi/2.)))
+    RVEL_theta = np.array(RVEL_theta)[indices]
+    RVEL_phi = np.array(RVEL_phi)[indices]
+    frequencies = np.array(frequencies)[indices]
+    max_freq_index = frequencies < max_freq
+
+    
+    RVEL_theta = np.interp(freqs, frequencies[max_freq_index], RVEL_theta[max_freq_index])
+    RVEL_phi = np.interp(freqs, frequencies[max_freq_index], RVEL_phi[max_freq_index])
+
+
+    antenna_response["theta"] = RVEL_theta
+    antenna_response["phi"] = RVEL_phi
+    return antenna_response
+
+
 
 class channelThermalNoiseAdder:
     """
@@ -34,10 +147,14 @@ class channelThermalNoiseAdder:
         self.__n_side = None
         self.__antenna_pattern_provider = NuRadioReco.detector.antennapattern.AntennaPatternProvider()
 
+    
 
-    @functools.lru_cache(maxsize=1024 * 32)
+    @functools.lru_cache(maxsize=1024 * 24 * 32)
     def get_cached_antenna_response(self, antenna_pattern, zen, azi, *ant_orient, use_db=True):
-        return antenna_pattern.get_antenna_response_vectorized(self.freqs, zen, azi, *ant_orient)
+        if isinstance(antenna_pattern, tuple):
+            return get_antenna_response_from_pickle_content(antenna_pattern, self.freqs, zen, azi)
+        else:
+            return antenna_pattern.get_antenna_response_vectorized(self.freqs, zen, azi, *ant_orient)
 
 
     def get_temperature_at_depth(self, depth):
@@ -172,17 +289,38 @@ class channelThermalNoiseAdder:
         for channel in station.iter_channels():
             channel_spectra[channel.get_id()] = channel.get_frequency_spectrum()
 
+
+        # need exception for these antenna models since the queried RVELs from NuRadio are not correct,
+        # only the pickle files contain correct profiles
+        # if the pickle files are not on your system they are automatically downloaded
+        magphase_antenna_patterns = [f"vpol_effective_height_n1pt{n}_5x_upsample" for n in [3, 4, 5, 6, 7]] 
+        antenna_model = detector.get_antenna_model(station.get_id(), channel.get_id())
+        if antenna_model in magphase_antenna_patterns:
+            antenna_dir = "/user/rcamphyn/software/NuRadioMC/NuRadioReco/detector/AntennaModels/"
+#            antenna_path = antenna_dir + antenna_model + "/" + antenna_model + ".pkl"
+#            antenna_pattern = NuRadioReco.detector.antennapattern.get_pickle_antenna_response(antenna_path)
+#            # to make hashable for lru_cache
+#            antenna_pattern = structure_pickle_antenna_pattern(antenna_pattern)
+#            antenna_pattern = make_hashable(antenna_pattern)
+            antenna_pattern = NuRadioReco.detector.antennapattern.AntennaPattern(antenna_model, path=antenna_dir)
+        else:
+            antenna_pattern = self.__antenna_pattern_provider.load_antenna_pattern(
+                antenna_model,
+    #                        interpolation_method="magphase"
+                )
+        antenna_orientation = detector.get_antenna_orientation(station.get_id(), channel.get_id())
+
         d_thetas = np.diff(self.thetas)
         d_phis = np.diff(self.phis)
 #        d_phi = 2 * np.pi
+        channel_ids = station.get_channel_ids()
         for phi, d_phi in zip(self.phis, d_phis):
             for theta_i, (theta, d_theta) in enumerate(zip(self.thetas, d_thetas)):
                 solid_angle = self.solid_angle(theta, d_theta, d_phi)
 
                 noise_spectrum = np.zeros((3, freqs.shape[0]), dtype=complex)
                 channel_noise_spec = np.zeros_like(noise_spectrum)
-                for channel in station.iter_channels():
-                    channel_id = channel.get_id()
+                for channel_id in channel_ids:
                     depth = self.channel_depths[channel_id]
                     eff_temperature = self.eff_temperature[depth]
                     # calculate spectral radiance of radio signal using rayleigh-jeans law
@@ -207,11 +345,7 @@ class channelThermalNoiseAdder:
                     noise_spectrum[1][passband_filter] = np.exp(1j * phases) * efield_amplitude
                     noise_spectrum[2][passband_filter] = np.exp(1j * phases) * efield_amplitude
 
-                    antenna_pattern = self.__antenna_pattern_provider.load_antenna_pattern(
-                        detector.get_antenna_model(station.get_id(), channel.get_id()),
-#                        interpolation_method="magphase"
-                        )
-                    antenna_orientation = detector.get_antenna_orientation(station.get_id(), channel.get_id())
+
 
                     # add random polarizations and phase to electric field
                     if self.debug:
@@ -228,13 +362,14 @@ class channelThermalNoiseAdder:
 
                     antenna_response = self.get_cached_antenna_response(antenna_pattern, theta, phi,
                                                                         *antenna_orientation)
+
                     channel_noise_spectrum = (
                         antenna_response['theta'] * channel_noise_spec[1]
                         + antenna_response['phi'] * channel_noise_spec[2]
                     )
 
                     # add noise spectrum from pixel in the sky to channel spectrum
-                    channel_spectra[channel.get_id()] += channel_noise_spectrum
+                    channel_spectra[channel_id] += channel_noise_spectrum
 
         # store the updated channel spectra
         for channel in station.iter_channels():
@@ -244,40 +379,64 @@ class channelThermalNoiseAdder:
 if __name__ == "__main__":
     import datetime
     import matplotlib.pyplot as plt
-    from NuRadioReco.detector.RNO_G.rnog_detector import Detector
+    from NuRadioReco.detector.RNO_G.rnog_detector_mod import ModDetector
     from NuRadioReco.framework.event import Event
     from NuRadioReco.framework.station import Station
     from NuRadioReco.framework.channel import Channel
 
-    station_id = 23
+    # SETTINGS
+    station_id = 11
     nr_samples = 2048
     sampling_rate = 3.2 * units.GHz
     frequencies = np.fft.rfftfreq(nr_samples, d=1./sampling_rate)
     channel_ids = [0]
-
-    detector = Detector(database_connection='RNOG_public', log_level=logging.NOTSET,
-                        select_stations=station_id)
+#    antenna_models = {"VPol" : "RNOG_vpol_v3_5inch_center_IGLU_n1.74",
+#                      "HPol" : "RNOG_hpol_v4_8inch_center_IGLU_n1.74"}
+    antenna_models = {"VPol" : "vpol_effective_height_n1pt3_5x_upsample",
+                      "HPol" : "RNOG_hpol_v4_8inch_center_IGLU_n1.74"}
+    channel_types = {"VPol" : [0, 1, 2, 3, 5, 6, 7, 9, 10, 22, 23],
+                     "HPol" : [4, 8, 11, 21]}
     detector_time = datetime.datetime(2023, 8, 1)
+
+
+
+    detector = ModDetector(database_connection='RNOG_public', log_level=logging.NOTSET,
+                           select_stations=station_id)
     detector.update(detector_time)
 
-    event = Event(run_number=-1, event_id=-1)
-    station = Station(station_id)
-    station.set_station_time(detector.get_detector_time())
     for channel_id in channel_ids:
-        channel = Channel(channel_id)
-        channel.set_frequency_spectrum(np.zeros_like(frequencies, dtype=np.complex128), sampling_rate)
-        station.add_channel(channel)
-    event.set_station(station)
+        if channel_id in channel_types["VPol"]:
+            antenna_model = antenna_models["VPol"]
+            detector.modify_channel_description(station_id, channel_id, ["signal_chain", "VEL"], antenna_model)
+        if channel_id in channel_types["HPol"]:
+            antenna_model = antenna_models["HPol"]
+            detector.modify_channel_description(station_id, channel_id, ["signal_chain", "VEL"], antenna_model)
 
+
+    t0 = datetime.datetime.now()
+    spectra = []
+    nr_it = 100
     thermal_noise_adder = channelThermalNoiseAdder()
-    thermal_noise_adder.begin(sim_library_dir="sim/library")
-    thermal_noise_adder.run(event, station, detector)
+    thermal_noise_adder.begin(sim_library_dir="sim/library", debug=False)
+    for i in range(nr_it):
+        event = Event(run_number=-1, event_id=-1)
+        station = Station(station_id)
+        station.set_station_time(detector.get_detector_time())
+        for channel_id in channel_ids:
+            channel = Channel(channel_id)
+            channel.set_frequency_spectrum(np.zeros_like(frequencies, dtype=np.complex128), sampling_rate)
+            station.add_channel(channel)
+        event.set_station(station)
 
-    station = event.get_station()
-    channel = station.get_channel(0)
-    plt.plot(channel.get_times(), channel.get_trace())
-    plt.show()
+        thermal_noise_adder.run(event, station, detector)
 
-    plt.plot(channel.get_frequencies(), np.abs(channel.get_frequency_spectrum()))
+        station = event.get_station()
+        channel = station.get_channel(0)
+        spectra.append(np.abs(channel.get_frequency_spectrum()))
+    t1 = datetime.datetime.now()
+    print(f"took {t1 - t0} to run {nr_it} iterations")
+
+
+    plt.plot(channel.get_frequencies(), np.mean(spectra, axis=0))
     plt.show()
     plt.savefig("test_thermal_noise")
