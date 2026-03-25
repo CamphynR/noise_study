@@ -1,18 +1,19 @@
 {
-    "save_dir" : "/mnt/rno-g-0/felix/ruben/data/noise_study",
+    "save_dir" : "/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study",
     "broken_runs_dir" : "/home/rcamphyn/noise_study/broken_runs",
     "variable" : "traces",
     "variable_function_kwargs" : {
-        "clean" : {},
+        "clean" : {"channel_ids" : [0, 1, 2, 3]},
         "raw" : {}},
 
     "only_mean" : 0,
-    "is_data" : 1,
 
     "save" : 1,
     "savename" : "",
 
     "cleaning":{
+        "channelBandpassFilter" : {"begin_kwargs" : {}, "run_kwargs" : {"passband" : [0.1, 0.7], "filter_type" : "butter", "order" : 10}},
+        "channelSinewaveSubtraction" : {"begin_kwargs" : {}, "run_kwargs" : {"peak_prominence" : 4}}
     },
 
     "calibration" : {"11": "linear", "12" : "linear", "13" : "linear", "21" : "linear", "22" : "linear", "23" : "linear", "24" : "linear"},
