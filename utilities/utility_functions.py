@@ -88,6 +88,10 @@ def reduce_by_db(variable, db):
     variable = db_coeff * variable
     return variable
 
+def convert_db_to_amplitude(db):
+    amplitude = 10**(db/20.)
+    return amplitude
+
 
 def compute_confidence_interval(samples, confidence=0.95):
     sample_mean = np.mean(samples)
@@ -150,3 +154,14 @@ def read_freq_spectrum_from_nur(files : list, return_phase=False):
                 spec_channel.append(frequency_spectrum)
         spec.append(spec_channel)
     return np.array(spec)
+
+
+
+
+
+def rolling_average(array, resolution):
+    if isinstance(array, list):
+        array = np.array(array)
+    cumsum = np.cumsum(array)
+    rolling_average = cumsum[resolution:] - cumsum[:-resolution]
+    return rolling_average / resolution
