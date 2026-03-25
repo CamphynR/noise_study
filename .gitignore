@@ -17,7 +17,6 @@ trace_mem.txt
 *.pickle
 *.h5
 debug.txt
-*.sh
 RNO-G_noise_study.code-workspace
 testing
 *.h5
