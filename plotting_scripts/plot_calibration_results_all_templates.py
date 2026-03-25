@@ -1,4 +1,5 @@
 import argparse
+from astropy.time import Time
 import json
 import logging
 from matplotlib.backends.backend_pdf import PdfPages
@@ -8,6 +9,7 @@ import os
 import pandas as pd
 from scipy import stats
 
+from NuRadioReco.detector.RNO_G.rnog_detector import Detector
 from NuRadioReco.utilities import fft, units
 
 from fitting.spectrumFitter import spectrumFitter
@@ -41,7 +43,8 @@ def calculate_area_difference(spectrum_1, spectrum_2, var_1, frequencies, freq_r
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--season", type=int, default=2024)
-    parser.add_argument("--station", "-s", default=12)
+    parser.add_argument("--station", "-s", type=int, default=12)
+    parser.add_argument("--fname_appendix", default=None) 
     args = parser.parse_args()
 
 
@@ -52,8 +55,20 @@ if __name__ == "__main__":
         "surface" : [12, 13, 14, 15, 16, 17, 18, 19, 20]
         }
 
-    save_folder="/user/rcamphyn/noise_study/absolute_amplitude_results/"
     season = args.season
+    save_folder=f"/user/rcamphyn/noise_study/absolute_amplitude_results/season{season}/station{args.station}/"
+    if args.fname_appendix is None:
+        save_folder += "default/"
+    else:
+        save_folder += f"{args.fname_appendix}/"
+
+    os.makedirs(save_folder, exist_ok=True)
+
+    det_time = Time(f"{season}-08-01")
+    det = Detector(signal_chain_measurement_name=None)
+    det.update(det_time)
+    station_info = det.get_station(station_id=args.station)
+
     digitizer_version = "digitizer_v3" if season > 2023 \
                   else "digitizer_v2"
     station_id = args.station
@@ -65,28 +80,52 @@ if __name__ == "__main__":
                                "area_diff" : calculate_area_difference}
     goodness_of_fit_variable = "reduced_chi2"
 
-    include_impedance_mismatch_correction = True
+    include_impedance_mismatch_correction = False
 
-    mode = "electronic_temp_cross"
+#    mode = "electronic_temp_cross"
+    mode = "constant"
+    parameter_limits = [(0, None)]
 
 
-    fit_range = [0.1, 0.6]
-
-
+    fit_range = [0.15, 0.6]
+    
+    
     # LOWER LIMIT WAS CHANGED FOR TESTING
     bandpass_kwargs = dict(passband=[0.1, 0.7], filter_type="butter", order=10)
 
 
 
+
+
     # DATA
     data_path = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/data/average_ft/complete_average_ft_sets_v0.2/season{season}/station{station_id}/clean/average_ft_combined.pickle"
-    sim_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/average_ft/complete_sim_average_ft_set_v0.2_no_system_response_measured_electronic_noise/{digitizer_version}"
+#    sim_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/average_ft/complete_sim_average_ft_set_v0.2_no_system_response_measured_electronic_noise/{digitizer_version}"
+    sim_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/average_ft/complete_sim_average_ft_set_v0.2_no_system_response_measured_electronic_noise_new_impedance_mismatch/{digitizer_version}"
     sim_paths = [os.path.join(sim_dir, f"{component}/station{station_id}/clean/average_ft.pickle")
                  for component in ["ice", "electronic", "galactic"]]
+
+#    sim_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/average_ft/complete_sim_average_ft_set_v0.2_no_system_response/{digitizer_version}"
+#    sim_paths = [os.path.join(sim_dir, f"{component}/station{station_id}/clean/average_ft.pickle")
+#                 for component in ["ice", "electronic", "galactic"]]
 
 
     cross_products_path = f"{sim_dir}/cross_products/station{station_id}/cross_products.pickle"
 
+    cable_length=11
+
+    settings_dict = {
+            "season" : season,
+            "station" : station_id,
+            "mode" : mode,
+            "parameter_limits" : parameter_limits,
+            "digitizer_version" : digitizer_version,
+            "goodness_of_fit_variable" : goodness_of_fit_variable,
+            "fit_range" : fit_range,
+            "sim_paths" : sim_paths
+            }
+    settings_path = os.path.join(save_folder, "fit_settings.json")
+    with open(settings_path, "w") as settings_file:
+        json.dump(settings_dict, settings_file, indent=4)
 
     # SYSTEM RESPONSE TEMPLATE
 #    system_response_paths = ["sim/library/v2_v3_deep_impulse_responses_for_comparison.json",
@@ -114,6 +153,8 @@ if __name__ == "__main__":
 
 
     filename_base = f"absolute_amplitude_calibration_season{season}_st{station_id}"
+    if args.fname_appendix is not None:
+        filename_base += "_" + args.fname_appendix
 
     for template_key in template_keys:
         system_response = systemResponseTimeDomainIncorporator()
@@ -125,10 +166,12 @@ if __name__ == "__main__":
                                 cross_products_path=cross_products_path,
                                 sampling_rate=sampling_rate,
                                 system_response=system_response,
-                                include_impedance_mismatch_correction=include_impedance_mismatch_correction)
+                                include_impedance_mismatch_correction=include_impedance_mismatch_correction,
+                                cable_length=cable_length)
         fitter.set_fit_range(fit_range)
-        fit_results = fitter.save_fit_results(mode=mode, save_folder=save_folder,
-                                              filename=filename_base + f"_key{template_key}.csv")
+        fit_results, goodness_of_fit_tmp = fitter.save_fit_results(mode=mode, parameter_limits=parameter_limits,
+                                                                   save_folder=save_folder,
+                                                                   filename=filename_base + f"_key{template_key}.csv")
         fit_results_templates[template_key] = fit_results
 
         fit_functions_template = []
@@ -153,7 +196,10 @@ if __name__ == "__main__":
     
     # sim
     plt.style.use("retro")
-    filename = f"figures/absolute_ampl_calibration/spectra_fit_season{season}_st{station_id}_all_template_fit.pdf"
+    filename = f"figures/absolute_ampl_calibration/spectra_fit_season{season}_st{station_id}_all_template_fit"
+    if args.fname_appendix is not None:
+        filename += "_" + args.fname_appendix
+    filename += ".pdf"
     pdf = PdfPages(filename)
     
     calculate_gof = goodness_of_fit_options[goodness_of_fit_variable]
@@ -199,8 +245,12 @@ if __name__ == "__main__":
     # PLOTTING BEST TEMPLATE
     # ----------------------
 
+    pdf_name = f"figures/absolute_ampl_calibration/spectra_fit_season{season}_st{station_id}_best_template_fit"
+    if args.fname_appendix is not None:
+        pdf_name += "_" + args.fname_appendix
+    pdf_name += ".pdf"
+    pdf = PdfPages(pdf_name)
 
-    pdf = PdfPages(f"figures/absolute_ampl_calibration/spectra_fit_season{season}_st{station_id}_best_template_fit.pdf")
     for i, channel_id in enumerate(channel_ids):
         fig, ax = plt.subplots()
         goodness_of_fit_key = goodness_of_fit_list[channel_id]
@@ -237,7 +287,8 @@ if __name__ == "__main__":
 
     # SAVING BEST FITS PER CHANNEL
 
-    filename_best_fits = filename_base + "_best_fit.csv"
+    filename_best_fits = filename_base
+    filename_best_fits += "_best_fit.csv"
 
     logging.debug("Saving best fit per channel")
 
@@ -300,6 +351,7 @@ if __name__ == "__main__":
         axs[i].plot(frequencies, data_dict["spectrum"][channel_id], label="data", lw=1.)
 #        axs[i].plot(frequencies, spectrum_fit, label=f"simulation\nGain:\n{convert_to_db(fit_param[0]):.2f} dB\nTemplate:\n{min_goodness_of_fit_template}", lw=1.)
         axs[i].plot(frequencies, spectrum_fit, label=f"simulation\nGain:\n{convert_to_db(fit_param[0]):.2f} dB", lw=1.)
+        axs[i].axvspan(*fit_range, alpha=0.2, label = "fit range", edgecolor="black", linestyle="dashed")
         axs[i].set_xlim(0., 1.)
         axs[i].legend(loc="upper right", fontsize=16)
         axs[i].set_title(representative_channel_names[i])
@@ -310,4 +362,7 @@ if __name__ == "__main__":
     axs[3].set_xlabel("frequencies / GHz")
     fig.text(-0.04, 0.5, "spectral amplitude / V", va='center', rotation='vertical')
     fig.tight_layout()
-    fig.savefig(f"figures/paper/results_season{season}_st{station_id}_best_fit", dpi=300, bbox_inches="tight")
+    figname = f"figures/paper/results_season{season}_st{station_id}_best_fit"
+    if args.fname_appendix is not None:
+        figname += "_" + args.fname_appendix
+    fig.savefig(figname, dpi=300, bbox_inches="tight")

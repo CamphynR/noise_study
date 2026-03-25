@@ -128,6 +128,7 @@ def read_freq_spec_file(path):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("--season", type=int)
     parser.add_argument("--station", "-s", type=int, default=11)
     args = parser.parse_args()
 
@@ -136,7 +137,7 @@ if __name__ == "__main__":
     config_path = "sim/thermal_noise/config_efields.json"
     config = read_config(config_path)
 
-    season = 2023
+    season = args.season
     station_id = args.station
     nr_channels = 24
     nr_samples = 2048

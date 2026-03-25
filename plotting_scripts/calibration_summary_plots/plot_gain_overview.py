@@ -13,27 +13,29 @@ if __name__ == "__main__":
     parser.add_argument("--channel_type", default="deep", choices=["deep", "hpol", "shallow"])
     args = parser.parse_args()
 
-    station_ids = [11, 12, 13, 21, 22, 23, 24]
-    station_ids_new_daq = [11, 12, 13, 23]
+    station_ids = [11, 12, 13, 21, 23, 24]
+    station_ids_new_daq = [11, 13, 23]
     station_index_new_daq = [0, 1, 2, 5]
     station_ids_old_daq = [21, 22, 24]
     station_index_old_daq = [3, 4, 6]
 
-    station_ids = station_ids_new_daq
+    station_ids = station_ids
+    
+    calibration_type = "measured_noise_no_weight_new_impedance_cable_11"
     
     season = args.season
     channel_type = args.channel_type
     gains = []
     for station_id in station_ids:
-        radiant_calibration_path = f"absolute_amplitude_results/absolute_amplitude_calibration_season{season}_st{station_id}_best_fit.csv"
+        radiant_calibration_path = f"absolute_amplitude_results/season{args.season}/station{station_id}/{calibration_type}/absolute_amplitude_calibration_season{season}_st{station_id}_{calibration_type}_best_fit.csv"
         # backwards compatibility
         if not os.path.exists(radiant_calibration_path):
             radiant_calibration_path = f"absolute_amplitude_results/absolute_amplitude_calibration_season{season}_st{station_id}.csv"
         calibration_parameters = pd.read_csv(radiant_calibration_path)
         gain = calibration_parameters["gain"].to_numpy()
-        el_ampl = calibration_parameters["el_ampl"].to_numpy()
-        el_cst = calibration_parameters["el_cst"].to_numpy()
-        f0 = calibration_parameters["f0"].to_numpy()
+#        el_ampl = calibration_parameters["el_ampl"].to_numpy()
+#        el_cst = calibration_parameters["el_cst"].to_numpy()
+#        f0 = calibration_parameters["f0"].to_numpy()
         gains.append(gain)
 
     gains = np.array(gains)
@@ -41,11 +43,11 @@ if __name__ == "__main__":
     gains = gains.T
 
 
-    channel_types = {"vpols" :[0, 1, 2, 3, 5, 6, 7, 9, 10, 22, 23],
-                     "hpols" : [4, 8, 11, 21],
-                     "shallow" : [12, 13, 14, 15, 16, 17, 18, 19, 20]}
+    channel_types = {"VPols" :[0, 1, 2, 3, 5, 6, 7, 9, 10, 22, 23],
+                     "HPols" : [4, 8, 11, 21],
+                     "LPDAs" : [12, 13, 14, 15, 16, 17, 18, 19, 20]}
 
-    plt.style.use("retro")
+    plt.style.use("astroparticle_physics")
     prop_cycle = plt.rcParams["axes.prop_cycle"]
     colors = prop_cycle.by_key()["color"]
     markers = ["o", "v", "D", "X", "8", "^", "+", "p", "<", ">", "s"]
@@ -77,15 +79,17 @@ if __name__ == "__main__":
                 ax.scatter(np.arange(1, len(station_ids)+1)[outliers_channel], gains.T[outliers_channel, channel_id],
                            marker=markers[channel_index],
                            label=f"channel {channel_id}",
-                           color="gray")
+                           color="gray",
+                           s=80)
 
 
-        ax.legend()
+        ax.legend(loc="lower left", fontsize=21)
         ax.set_xticks(np.arange(1, len(station_ids)+1), station_ids)
-        ax.set_xlabel("Stations")
-        ax.set_ylabel("Gains / dB")
-        ax.set_title(f"{channel_type} channels")
-    fig.suptitle(f"Overview of gain calibration season {season}")
+        ax.tick_params(axis='both', which='major', labelsize=21)
+        ax.set_xlabel("Station", size=26)
+        ax.set_ylabel("Gain / dB", size=26)
+        ax.set_title(f"{channel_type}", size=26)
+#    fig.suptitle(f"Overview of gain calibration season {season}")
     fig.tight_layout()
     fig.savefig(f"figures/overviews/gain_season{season}.png")
     

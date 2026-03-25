@@ -12,18 +12,6 @@ from NuRadioReco.utilities import units
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
 if __name__ == "__main__":
     # constants
     station_id=11
@@ -48,7 +36,7 @@ if __name__ == "__main__":
 #        
 #    sky_map[mask] = 0
 
-    plt.style.use("retro")
+    plt.style.use("astroparticle_physics")
 #    hp.mollview(np.log2(sky_map), coord=["G", "C"], title="Galactic noise temperature as seen from RNO-G's location", rot=(180, 0, 0),
 #                hold=True,
 #                unit=r"log($T_{Ant}$)",
@@ -59,7 +47,7 @@ if __name__ == "__main__":
     fig, ax = plt.subplots()
     hp.projview(np.log2(sky_map), coord=["G", "C"], title="", rot=(180, 0, 0),
                 hold=True,
-                unit=r"log($T_{Ant}$)",
+                unit=r"$\log_2$($T_{\text{brightness}}$ / K)",
                 projection_type="mollweide",
                 graticule=True,
                 graticule_labels=True,
@@ -82,6 +70,16 @@ if __name__ == "__main__":
     lon = np.ones_like(lat)            
     lon *= dec_cut
 #    hp.projplot(lat, lon, lonlat=True, lw=4., ls="dashed" , label="RNO-G field of view")
-    plt.plot([-np.pi, np.pi], [np.radians(dec_cut), np.radians(dec_cut)], lw=4., ls="dashed" , label="RNO-G field of view")
+    line_fov = plt.plot([-np.pi, np.pi], [np.radians(dec_cut), np.radians(dec_cut)], lw=4., ls="dashed" , label="RNO-G field of view")
+    dy = np.radians(8)
+    nr_arrows = 5
+    for x in np.linspace(-0.9*np.pi, 0.9*np.pi, nr_arrows):
+        plt.arrow(x=x, y=np.radians(dec_cut)-dy/2,
+                  dx=0., dy=dy,
+                  lw=3.,
+                  head_width=np.radians(2),
+                  color = line_fov[0].get_color() 
+                  )
     plt.legend(loc = "upper right")
-    plt.savefig("figures/POS_ICRC/galaxy_rnog.png", dpi=300, bbox_inches="tight")
+    plt.tight_layout()
+    plt.savefig("figures/paper/galaxy_rnog.png", dpi=300, bbox_inches="tight")
