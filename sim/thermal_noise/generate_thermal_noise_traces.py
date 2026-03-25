@@ -216,6 +216,7 @@ if __name__ == "__main__":
     parser.add_argument("--name_appendix", default=None)
     args = parser.parse_args()
 
+
     config = read_config(args.config)
 
     if not args.debug:
@@ -264,48 +265,51 @@ if __name__ == "__main__":
     detector_time = Time(f"{config['season']}-8-1")
 
 
-    json_filename = f"/user/rcamphyn/software/NuRadioMC/NuRadioReco/detector/RNO_G/RNO_season_{config['season']}.json"
-    with open(json_filename, "r") as json_file:
-        det_dict = json.load(json_file)
-        for key in det_dict["channels"].keys():
-            if det_dict["channels"][key]["channel_id"] in channel_types["VPol"]:
-                det_dict["channels"][key]["ant_type"] = antenna_models["VPol"]
-            if det_dict["channels"][key]["channel_id"] in channel_types["HPol"]:
-                det_dict["channels"][key]["ant_type"] = antenna_models["HPol"]
-            if det_dict["channels"][key]["channel_id"] in channel_types["LPDA"]:
-                det_dict["channels"][key]["ant_type"] = antenna_models["LPDA"]
-
-    # when using a dict like this you have to deserialize the jsonbecause TinyDB already serialized the dates to strings
-    for station in det_dict["stations"].values():
-        for key, val in station.items():
-            if "{TinyDate}" in str(val):
-                station[key] = Time(val.split(":", 1)[1], format="isot")
-
-    for channel in det_dict["channels"].values():
-        for key, val in channel.items():
-            if "{TinyDate}" in str(val):
-                channel[key] = Time(val.split(":", 1)[1], format="isot")
-
-    detector = Detector(dictionary=det_dict, source="dictionary", antenna_by_depth=False)
-    detector.update(detector_time)
-    logger.debug("done querying detector")
+#    json_filename = f"/user/rcamphyn/software/NuRadioMC/NuRadioReco/detector/RNO_G/RNO_season_{config['season']}.json"
+#    with open(json_filename, "r") as json_file:
+#        det_dict = json.load(json_file)
+#        for key in det_dict["channels"].keys():
+#            if det_dict["channels"][key]["channel_id"] in channel_types["VPol"]:
+#                det_dict["channels"][key]["ant_type"] = antenna_models["VPol"]
+#            if det_dict["channels"][key]["channel_id"] in channel_types["HPol"]:
+#                det_dict["channels"][key]["ant_type"] = antenna_models["HPol"]
+#            if det_dict["channels"][key]["channel_id"] in channel_types["LPDA"]:
+#                det_dict["channels"][key]["ant_type"] = antenna_models["LPDA"]
+#
+#    # when using a dict like this you have to deserialize the jsonbecause TinyDB already serialized the dates to strings
+#    for station in det_dict["stations"].values():
+#        for key, val in station.items():
+#            if "{TinyDate}" in str(val):
+#                station[key] = Time(val.split(":", 1)[1], format="isot")
+#
+#    for channel in det_dict["channels"].values():
+#        for key, val in channel.items():
+#            if "{TinyDate}" in str(val):
+#                channel[key] = Time(val.split(":", 1)[1], format="isot")
+#
+#    detector = Detector(dictionary=det_dict, source="dictionary", antenna_by_depth=False)
 
 
 # For use when 2024 is implemented in DB
-#    detector = ModDetector(log_level=log_level,
-#                           select_stations=station_id,
-#                            )
-#                           database_time=detector_time)
+    detector = ModDetector(log_level=log_level,
+                           select_stations=station_id,
+                            )
 
-#    for channel_id in channels_to_include:
-#        if channel_id in channel_types["VPol"]:
-#            antenna_model = antenna_models["VPol"]
-#            detector.modify_channel_description(station_id, channel_id, ["signal_chain","VEL"], antenna_model)
-#
-#        elif channel_id in channel_types["HPol"]:
-#            antenna_model = antenna_models["HPol"]
-#            detector.modify_channel_description(station_id, channel_id, ["signal_chain","VEL"], antenna_model)
+    detector.update(detector_time)
+    for channel_id in channels_to_include:
+        if channel_id in channel_types["VPol"]:
+            antenna_model = antenna_models["VPol"]
+            detector.modify_channel_description(station_id, channel_id, ["signal_chain","VEL"], antenna_model)
 
+        elif channel_id in channel_types["HPol"]:
+            antenna_model = antenna_models["HPol"]
+            detector.modify_channel_description(station_id, channel_id, ["signal_chain","VEL"], antenna_model)
+        elif channel_id in channel_types["LPDA"]:
+            antenna_model = antenna_models["LPDA"]
+            detector.modify_channel_description(station_id, channel_id, ["signal_chain","VEL"], antenna_model)
+
+
+    logger.debug("done querying detector")
 
 
     noise_sources = config["noise_sources"]
@@ -367,12 +371,13 @@ if __name__ == "__main__":
 
     if args.debug:
         nr_batches = 1
-        events_per_batch = 200
-        noise_sources = ["electronic"]
+        events_per_batch = 10
+        noise_sources = ["ice"]
         events = events_process(0, debug=False)
 
         labels = ["ice"]
 #        labels = ["ice", "electronic", "galactic", "sum"]
+        plt.style.use("retro")
         fig, ax = plt.subplots(figsize=(20,10))
         freq_spectra = []
 
@@ -386,8 +391,11 @@ if __name__ == "__main__":
             freq_spectra.append(frequency_spectrum)
         frequency_spectrum_mean = np.mean(np.abs(freq_spectra), axis=0)
 
+
         ax.plot(frequencies, frequency_spectrum_mean)
+
         ax.set_xlabel("freq / GHz")
         ax.set_ylabel("Spectral amplitude / V/GHZ")
         ax.set_xlim(None, 1.)
+        ax.legend()
         fig.savefig("test_sim.png")
