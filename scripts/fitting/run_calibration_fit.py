@@ -58,6 +58,7 @@ if __name__ == "__main__":
 
 
     # SETTINGS
+    # --------------------------------------------------------------------------------------------
     # these are saved in a json file for posterity
     channel_mapping = {
         "deep" : [0, 1, 2, 3],
@@ -90,22 +91,24 @@ if __name__ == "__main__":
                                "area_diff" : calculate_area_difference}
     goodness_of_fit_variable = "reduced_chi2"
 
-#    mode = "electronic_temp_cross"
+    # MODES
+    # the mode determines how the simulation is built
+    # "constant" means only the overall gain is fitted
+    # LEGACY "electronic_weight" also includes free parameters to fit the electronic noise
+    # note constant is preferred
+
+#    mode = "electronic_weight"
     mode = "constant"
     parameter_limits = [(0, None)]
 
-
     fit_range = [0.15, 0.6]
     
-    
-    # LOWER LIMIT WAS CHANGED FOR TESTING
     bandpass_kwargs = dict(passband=[0.1, 0.7], filter_type="butter", order=10)
 
 
 
-
-
     # DATA
+    # --------------------------------------------------------------------------------------------
     data_path = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/data/average_ft/complete_average_ft_sets_v0.2/season{season}/station{station_id}/clean/average_ft_combined.pickle"
 #    sim_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/average_ft/complete_sim_average_ft_set_v0.2_no_system_response_measured_electronic_noise/{digitizer_version}"
     sim_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/average_ft/complete_sim_average_ft_set_v0.2_no_system_response_measured_electronic_noise_new_impedance_mismatch/{digitizer_version}"
@@ -135,29 +138,57 @@ if __name__ == "__main__":
     with open(settings_path, "w") as settings_file:
         json.dump(settings_dict, settings_file, indent=4)
 
-    # SYSTEM RESPONSE TEMPLATE
+
+
+    # SYSTEM RESPONSE TEMPLATES
+    # --------------------------------------------------------------------------------------------
 #    system_response_paths = ["sim/library/v2_v3_deep_impulse_responses_for_comparison.json",
 #                             "sim/library/v2_v3_surface_impulse_responses.json"]
 
-    system_response_paths = ["sim/library/deep_templates_combined.json",
-                             "sim/library/v2_v3_surface_impulse_responses.json"]
+    # construct a list of all available templates
+    system_response_paths = ["sim/library/system_response_templates_deep.json",
+                             "sim/library/system_response_templates_surface.json"]
+    template_keys = []
+
     with open(system_response_paths[0], "r") as f:
         deep_keys = list(json.load(f).keys())
     deep_keys.remove("time")
-    # v3_ch5 was a test and does not contain a physical template
     template_keys = deep_keys
 
     with open(system_response_paths[1], "r") as f:
         surface_keys = list(json.load(f).keys())
     surface_keys += ["surface_query"]
     surface_keys.remove("time")
+    # v3_ch5 was a test and does not contain a physical template
     surface_keys.remove("v3_ch5")
     template_keys += surface_keys
 
+
+    # for the fitting we do not mix RADIANT v2 and v3 templates
+    # this can be commented for testing purposes to see how sensitive
+    # the fit is to RADIANT versions
+
+    if args.season > 2023:
+        for key in template_keys:
+            if not key.startswith("v3"):
+                template_keys.remove(key)
+    elif args.season <= 2023:
+        for key in template_keys:
+            print(key)
+            if key.startswith("v3"):
+                print("started with v3")
+                template_keys.remove(key)
+
+
+    print(template_keys)
+    exit()
+
     
+
+    # FITTING
+    # --------------------------------------------------------------------------------------------
     fit_results_templates = {}
     fit_functions = {}
-
 
 
     filename_base = f"absolute_amplitude_calibration_season{season}_st{station_id}"
@@ -194,7 +225,7 @@ if __name__ == "__main__":
 
 
     # PLOTTING
-    # ========
+    # --------------------------------------------------------------------------------------------
     # PLOTTING ALL TEMPLATES
     # ----------------------
 

@@ -273,7 +273,7 @@ class spectrumFitter:
 #                m.migrad()
                 m.hesse()
                 fit_results.append(m.params)
-            elif mode == "electronic_temp_cross":
+            elif mode == "electronic_weight":
                 fit_function = self.select_fit_function(mode, channel_id)
                 cost_function = self.cost_function(x=x_data, y=y_data,
                                              yerror=y_err,
@@ -463,7 +463,7 @@ class spectrumFitter:
                 return function_interp(freq)
                 
             fit_function = fit_electronic_temp
-        elif mode == "electronic_temp_cross":
+        elif mode == "electronic_weight":
             ice_spectrum = self.sim_spectra[0][channel_id]
             electronic_spectrum = self.sim_spectra[1][channel_id]
             galactic_spectrum = self.sim_spectra[2][channel_id]
