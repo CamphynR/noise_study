@@ -55,7 +55,7 @@ class spectrumFitter:
     def __init__(self, data_path, sim_paths,
                  cross_products_path = None,
                  sampling_rate=3.2 * units.GHz,
-                 fit_range=[0.25, 0.6],
+                 fit_range=[0.15, 0.6],
                  bandpass=None, bandpass_type="butter",
                  system_response=None,
                  cost_function = None,
@@ -81,6 +81,7 @@ class spectrumFitter:
 
 
         self.channels_to_include = self.config["channels_to_include"]
+        self.channels_to_include = np.array(self.channels_to_include)
 
         self.sampling_rate = sampling_rate
         self.frequencies, \
@@ -121,8 +122,9 @@ class spectrumFitter:
                 sim_var_spectrum_i = sim_var_spectrum_i * system_response**2
                 # divide out cable from electronic noise in lpdas
                 if i == 1 and remove_cable:
-                    for channel_id in lpdas:
-                        sim_spectrum_i[channel_id] = sim_spectrum_i[channel_id] / self.cable_response / self.cable_response
+                    lpda_idx = [c in lpdas for c in self.channels_to_include]
+                    for channel_idx in np.nonzero(lpda_idx)[0]:
+                        sim_spectrum_i[channel_idx] = sim_spectrum_i[channel_idx] / self.cable_response
             self.sim_spectra.append(sim_spectrum_i)
             self.sim_var_spectra.append(sim_var_spectrum_i)
             self.sim_headers.append(sim_header)
@@ -141,14 +143,15 @@ class spectrumFitter:
                     self.cross_products[cross_i] = system_response * cross_product
                 # divide out cable from electronic noise in lpdas
                 if cross_i in [0, 2] and remove_cable:
-                    for channel_id in lpdas:
-                        self.cross_products[cross_i][channel_id] = self.cross_products[cross_i][channel_id] / self.cable_response
+                    lpda_idx = [c in lpdas for c in self.channels_to_include]
+                    for channel_idx in np.nonzero(lpda_idx)[0]:
+                        self.cross_products[cross_i][channel_idx] = self.cross_products[cross_i][channel_idx] / self.cable_response
 
             
-            for channel_id in self.channels_to_include: 
-                ice_el_cross = self.cross_products[0][channel_id]
-                ice_gal_cross = self.cross_products[1][channel_id]
-                el_gal_cross = self.cross_products[2][channel_id]
+            for i, channel_id in enumerate(self.channels_to_include): 
+                ice_el_cross = self.cross_products[0][i]
+                ice_gal_cross = self.cross_products[1][i]
+                el_gal_cross = self.cross_products[2][i]
                 assert np.all(np.imag(ice_el_cross + ice_gal_cross + el_gal_cross) < 1e-20), "imaginary part of cross product sum should be 0"
 
                 
@@ -158,34 +161,43 @@ class spectrumFitter:
         self.fit_range = fit_range
         fit_band = np.where(np.logical_and(fit_range[0] < self.frequencies,
                                            self.frequencies < fit_range[1]))
-#        self.fit_idxs = {}
+        self.fit_idxs = {}
         # we filter out any CW's from the fit range out of upward facing lpdas
         # (peak finding algorihtm should not be used for other antenna types)
-#        lpdas_up = [13, 16, 19]
-#        for channel_id in self.channels_to_include:
-#            if channel_id in lpdas_up:
-#                peaks_freq_idxs = find_frequency_peaks(self.frequencies,
-#                                                       self.data_spectrum[channel_id],
-#                                                       threshold=2)
-#                peak_width_idxs = int(10 * units.MHz/np.diff(self.frequencies[:2]))
-#                idxs_to_remove = [np.arange(peak_freq_idx - peak_width_idxs/2, peak_freq_idx + peak_width_idxs/2)
-#                                                for peak_freq_idx in peaks_freq_idxs]
-#
-#                freqs_no_cw = np.delete(self.frequencies,idxs_to_remove)
-#
+        lpdas_up = [13, 16, 19]
+        for channel_id in self.channels_to_include:
+            if channel_id in lpdas_up:
+                peaks_freq_idxs = find_frequency_peaks(self.frequencies,
+                                                       self.data_spectrum[channel_id],
+                                                       threshold=2)
+                peak_width_idxs = int(10 * units.MHz/np.diff(self.frequencies[:2]))
+                idxs_to_remove = np.array(
+                        [np.arange(peak_freq_idx - int(peak_width_idxs/2),
+                                   peak_freq_idx + int(peak_width_idxs/2))
+                         for peak_freq_idx in peaks_freq_idxs])
+                idxs_to_remove = np.ndarray.flatten(idxs_to_remove)
+
+                frequencies_no_cw_idxs = np.arange(len(self.frequencies))
+                frequencies_no_cw_idxs = np.delete(frequencies_no_cw_idxs, idxs_to_remove)
+
+                frequencies_no_cw_idxs = np.intersect1d(frequencies_no_cw_idxs, fit_band)
+
+                self.fit_idxs[channel_id] = frequencies_no_cw_idxs
+
+                
 #                import matplotlib.pyplot as plt
 #                plt.style.use("retro")
-#                plt.plot(frequencies, self.data_spectrum[channel_id])
-#                plt.scatter(freqs_no_cw, np.median(self.data_spectrum[channel_id]))
+#                plt.plot(self.frequencies, self.data_spectrum[channel_id])
+#                plt.scatter(self.frequencies[frequencies_no_cw_idxs], self.data_spectrum[channel_id][frequencies_no_cw_idxs])
 #                plt.xlim(0., 1.)
 #                plt.savefig("test")
 #                exit()
-#            else:
-#                self.fit_idxs[channel_id] = fit_band
+            else:
+                self.fit_idxs[channel_id] = fit_band
 
 
-        self.fit_idxs = np.where(np.logical_and(fit_range[0] < self.frequencies,
-                                                self.frequencies < fit_range[1]))
+#        self.fit_idxs = np.where(np.logical_and(fit_range[0] < self.frequencies,
+#                                                self.frequencies < fit_range[1]))
 
         self.bandpass = bandpass
         if self.bandpass is None:
@@ -215,19 +227,21 @@ class spectrumFitter:
         fit_results = []
         goodness_of_fits = []
         for channel_id in channel_ids:
-            x_data = self.frequencies[self.fit_idxs]
-            y_data = self.data_spectrum[channel_id][self.fit_idxs]
-            y_err = self.var_data_spectrum[channel_id][self.fit_idxs]
+            x_data = self.frequencies[self.fit_idxs[channel_id]]
+            y_data = self.data_spectrum[channel_id][self.fit_idxs[channel_id]]
+            y_err = self.var_data_spectrum[channel_id][self.fit_idxs[channel_id]]
+            y_err[x_data>0.6] = 1.
+            y_err[x_data<0.15] = 1.
 
             if mode == "constant":
                 fit_function = self.select_fit_function(mode, channel_id)
                 cost_function = self.cost_function(x=x_data, y=y_data,
                                              yerror=y_err,
                                              model=fit_function)
-                m = Minuit(cost_function, gain=1000.)
+                m = Minuit(cost_function, gain=2000.)
 
                 if parameter_limits is None:
-                    parameter_limits = [(0, 3000)]
+                    parameter_limits = [(0, None)]
                 m.limits = parameter_limits
 
                 m.migrad()
@@ -371,7 +385,12 @@ class spectrumFitter:
             error_dicts = [{"gain" : fit_result["gain"].error} for fit_result in fit_results]
 
         value_df = pd.DataFrame(value_dicts)
+        value_df["channel_id"] = self.channels_to_include
+        value_df.set_index("channel_id", inplace=True)
+
         error_df = pd.DataFrame(error_dicts)
+        error_df["channel_id"] = self.channels_to_include
+        error_df.set_index("channel_id", inplace=True)
 
         header=True if extended else False
         if filename is None:
@@ -405,6 +424,41 @@ class spectrumFitter:
 
     def set_fit_range(self, fit_range):
         self.fit_range = fit_range
+        fit_band = np.where(np.logical_and(fit_range[0] < self.frequencies,
+                                           self.frequencies < fit_range[1]))
+        self.fit_idxs = {}
+        # we filter out any CW's from the fit range out of upward facing lpdas
+        # (peak finding algorihtm should not be used for other antenna types)
+        lpdas_up = [13, 16, 19]
+        for channel_id in self.channels_to_include:
+            if channel_id in lpdas_up:
+                peaks_freq_idxs = find_frequency_peaks(self.frequencies,
+                                                       self.data_spectrum[channel_id],
+                                                       threshold=2)
+                peak_width_idxs = int(10 * units.MHz/np.diff(self.frequencies[:2]))
+                idxs_to_remove = np.array(
+                        [np.arange(peak_freq_idx - int(peak_width_idxs/2),
+                                   peak_freq_idx + int(peak_width_idxs/2))
+                         for peak_freq_idx in peaks_freq_idxs])
+                idxs_to_remove = np.ndarray.flatten(idxs_to_remove)
+
+                frequencies_no_cw_idxs = np.arange(len(self.frequencies))
+                frequencies_no_cw_idxs = np.delete(frequencies_no_cw_idxs, idxs_to_remove)
+
+                frequencies_no_cw_idxs = np.intersect1d(frequencies_no_cw_idxs, fit_band)
+
+                self.fit_idxs[channel_id] = frequencies_no_cw_idxs
+
+                
+#                import matplotlib.pyplot as plt
+#                plt.style.use("retro")
+#                plt.plot(self.frequencies, self.data_spectrum[channel_id])
+#                plt.scatter(self.frequencies[frequencies_no_cw_idxs], self.data_spectrum[channel_id][frequencies_no_cw_idxs])
+#                plt.xlim(0., 1.)
+#                plt.savefig("test")
+#                exit()
+            else:
+                self.fit_idxs[channel_id] = fit_band
         return
 
 
@@ -416,14 +470,15 @@ class spectrumFitter:
 
 
     def select_fit_function(self, mode, channel_id):
+        channel_idx = np.nonzero(channel_id == self.channels_to_include)[0][0]
         if mode == "constant":
-            ice_spectrum = self.sim_spectra[0][channel_id]
-            electronic_spectrum = self.sim_spectra[1][channel_id]
-            galactic_spectrum = self.sim_spectra[2][channel_id]
+            ice_spectrum = self.sim_spectra[0][channel_idx]
+            electronic_spectrum = self.sim_spectra[1][channel_idx]
+            galactic_spectrum = self.sim_spectra[2][channel_idx]
 
-            ice_el_cross = self.cross_products[0][channel_id]
-            ice_gal_cross = self.cross_products[1][channel_id]
-            el_gal_cross = self.cross_products[2][channel_id]
+            ice_el_cross = self.cross_products[0][channel_idx]
+            ice_gal_cross = self.cross_products[1][channel_idx]
+            el_gal_cross = self.cross_products[2][channel_idx]
 
             def fit_gain_factor(freq, gain):
 
@@ -441,9 +496,9 @@ class spectrumFitter:
 
             fit_function = fit_gain_factor
         elif mode == "electronic_temp":
-            ice_spectrum = self.sim_spectra[0][channel_id]
-            electronic_spectrum = self.sim_spectra[1][channel_id]
-            galactic_spectrum = self.sim_spectra[2][channel_id]
+            ice_spectrum = self.sim_spectra[0][channel_idx]
+            electronic_spectrum = self.sim_spectra[1][channel_idx]
+            galactic_spectrum = self.sim_spectra[2][channel_idx]
             def fit_electronic_temp(freq, gain, el_ampl, el_cst, f0):
                 # Johnson-Nyquist: V² ~ T
 
@@ -464,13 +519,13 @@ class spectrumFitter:
                 
             fit_function = fit_electronic_temp
         elif mode == "electronic_weight":
-            ice_spectrum = self.sim_spectra[0][channel_id]
-            electronic_spectrum = self.sim_spectra[1][channel_id]
-            galactic_spectrum = self.sim_spectra[2][channel_id]
+            ice_spectrum = self.sim_spectra[0][channel_idx]
+            electronic_spectrum = self.sim_spectra[1][channel_idx]
+            galactic_spectrum = self.sim_spectra[2][channel_idx]
 
-            ice_el_cross = self.cross_products[0][channel_id]
-            ice_gal_cross = self.cross_products[1][channel_id]
-            el_gal_cross = self.cross_products[2][channel_id]
+            ice_el_cross = self.cross_products[0][channel_idx]
+            ice_gal_cross = self.cross_products[1][channel_idx]
+            el_gal_cross = self.cross_products[2][channel_idx]
 
             def fit_electronic_temp(freq, gain, el_ampl, el_cst, f0):
                 # Johnson-Nyquist: V² ~ T
