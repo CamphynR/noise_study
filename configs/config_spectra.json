@@ -20,7 +20,7 @@
                     "read_run_info" : 0,
                     "cache_calibration" : 0},
 
-    "detector_time" : "2024-08-01",
-    "run_time_range" : ["2024-01-01", "2024-12-31"],
+    "detector_time" : "2021-08-01",
+    "run_time_range" : ["2021-01-01", "2021-12-31"],
     "max_trigger_rate" : 2
 }
