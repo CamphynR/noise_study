@@ -39,15 +39,23 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--pickles", nargs="+")
     args = parser.parse_args()
+
     
     frequencies_prev, frequency_spectrum_prev, var_frequency_spectrum_prev, nr_events_prev, header_prev = read_freq_spec_file(args.pickles[0])
     begin_time_prev, end_time_prev = header_prev["begin_time"], header_prev["end_time"]
     for i, pickle in enumerate(args.pickles[1:]):
+        if "station23" in pickle:
+            if "run1589" in pickle or "run1657" in pickle:
+                # these runs contain NANs -> need to investigate why
+                continue
         frequencies, frequency_spectrum, var_frequency_spectrum, nr_events, header = read_freq_spec_file(pickle)
         assert np.equal(frequencies.all(), frequencies_prev.all()), f"frequencies of {i}'th file are not equal to {i}-1th frequencies"
         var_frequency_spectrum_prev = combine_vars(var_frequency_spectrum_prev, var_frequency_spectrum,
                                               frequency_spectrum_prev, frequency_spectrum,
                                               nr_events_prev, nr_events)
+        if np.any(np.isnan(var_frequency_spectrum_prev)):
+            print(pickle)
+            exit()
         frequency_spectrum_prev = combine_mean(frequency_spectrum_prev, frequency_spectrum,
                                               nr_events_prev, nr_events)
         begin_time_prev, end_time_prev = combine_times(begin_time_prev, end_time_prev, header["begin_time"], header["end_time"])
