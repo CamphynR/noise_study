@@ -1,9 +1,15 @@
 import argparse
+import json
 from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.pyplot as plt
 import numpy as np
 import os
 import pandas as pd
+
+from NuRadioReco.modules.channelGenericNoiseAdder import channelGenericNoiseAdder
+from NuRadioReco.modules.channelBandPassFilter import channelBandPassFilter
+import NuRadioReco.utilities.signal_processing as signal
+from NuRadioReco.utilities import units
 
 from modules.systemResponseTimeDomainIncorporator import systemResponseTimeDomainIncorporator
 from utilities.utility_functions import read_freq_spectrum_from_pickle, read_pickle
@@ -44,12 +50,15 @@ def load_sim_components(sim_dir):
 
 
 def sim_no_weight(sim, calibration, channel_ids=np.arange(24)):
-    response_paths = ["sim/library/deep_templates_combined.json","sim/library/v2_v3_surface_impulse_responses.json"]
+    response_paths = ["sim/library/system_response_templates_deep.json",
+                      "sim/library/system_response_templates_surface.json"]
 
     sim_spectra = []
     ice_spectra = []
     electronic_spectra = []
     galactic_spectra = []
+    response_template_names = []
+    response_templates = []
     for channel_id in channel_ids:
         response_helper = systemResponseTimeDomainIncorporator()
         response_helper.begin(response_path=response_paths,
@@ -73,21 +82,32 @@ def sim_no_weight(sim, calibration, channel_ids=np.arange(24)):
         sim_spectrum = calibration["gain"][channel_id] * np.sqrt(ice_spectrum**2 + electronic_spectrum**2 + galactic_spectrum**2 + ice_el_cross + ice_gal_cross + el_gal_cross)
         sim_spectra.append(sim_spectrum)
 
-        ice_spectra.append(calibration["gain"][channel_id] * ice_spectrum)
-        electronic_spectra.append(calibration["gain"][channel_id] * electronic_spectrum)
-        galactic_spectra.append(calibration["gain"][channel_id] * galactic_spectrum)
+#        ice_spectra.append(calibration["gain"][channel_id] * ice_spectrum)
+#        electronic_spectra.append(calibration["gain"][channel_id] * electronic_spectrum)
+#        galactic_spectra.append(calibration["gain"][channel_id] * galactic_spectrum)
+
+        ice_spectra.append(calibration["gain"][channel_id] * np.abs(sim["ice"]["spectrum"][channel_id]))
+        electronic_spectra.append(calibration["gain"][channel_id] * np.abs(sim["electronic"]["spectrum"][channel_id]))
+        galactic_spectra.append(calibration["gain"][channel_id] * np.abs(sim["galactic"]["spectrum"][channel_id]))
+
+        response_template_names.append(calibration["best_fit_template"][channel_id])
+        response_templates.append(response["gain"](frequencies))
 
     components = {"ice" : ice_spectra,
                   "electronic" : electronic_spectra,
                   "galactic" : galactic_spectra}
 
-    return sim_spectra, components
+    return sim_spectra, components, response_template_names, response_templates
 
 
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("--station", type=int)
+    parser.add_argument("--include_components", action="store_true")
+    parser.add_argument("--include_response_on_plot", action="store_true")
+    parser.add_argument("--include_one_comp_noise", action="store_true")
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
 
@@ -96,16 +116,20 @@ if __name__ == "__main__":
     if season < 2024:
         digitizer_version = 2
 
-    station = 11
+    station = args.station
+
+    nr_samples = 2048
+    sampling_rate = 3.2 * units.GHz
 
     channel_ids  = np.arange(24)
     if args.debug:
         channel_ids = [0, 4, 12, 13]
+    channel_ids = [0, 4, 7, 12, 13, 23]
 
     calibration_dir = "/user/rcamphyn/noise_study/absolute_amplitude_results"
     calibration_name_base = f"absolute_amplitude_calibration_season{season}_st{station}"
 
-    calibration_type = "measured_noise_no_weight_new_impedance_cable_11"
+    calibration_type = "default"
 
 
     if calibration_type == "default":
@@ -116,6 +140,12 @@ if __name__ == "__main__":
     calibration_path = os.path.join(calibration_dir,"season" + str(season), "station" + str(station), calibration_type, calibration_filename)
 
     calibration = pd.read_csv(calibration_path)
+
+
+
+
+
+
 
 
 
@@ -152,51 +182,106 @@ if __name__ == "__main__":
         print("DONE PARSING SIM")
 
 
-    sim_result, sim_components = sim_no_weight(
+    sim_result, \
+    sim_components, \
+    response_template_names, \
+    response_templates = sim_no_weight(
                                     sim,
                                     calibration,
                                     channel_ids=channel_ids)
 
     
 
+
+    if args.include_one_comp_noise:
+        effective_temperature_dir = "/user/rcamphyn/noise_study/effective_temperatures"
+        effective_temperature_basename = f"eff_temperatures_calibrated_response_season{season}_st{station}.json"
+        with open(os.path.join(effective_temperature_dir, effective_temperature_basename), "r") as file:
+            effective_temperatures = json.load(file)
+
+
+        nr_it = 5000
+        generic_noise_adder = channelGenericNoiseAdder()
+        bandwidth = [0.1, 0.7]
+        noise_from_eff_temp = []
+        for i, channel_id in enumerate(channel_ids):
+            eff_temp = effective_temperatures[str(channel_id)]
+            vrms_from_eff_temp = signal.calculate_vrms_from_temperature(eff_temp, bandwidth=bandwidth)
+            noise = []
+            for _ in range(nr_it):
+                noise_tmp = generic_noise_adder.bandlimited_noise(*bandwidth, nr_samples, sampling_rate, amplitude=vrms_from_eff_temp, type="rayleigh", time_domain=False)
+                noise_tmp = noise_tmp * calibration["gain"][channel_id] * response_templates[i] 
+                noise.append(np.abs(noise_tmp)**2)
+            noise_from_eff_temp.append(np.sqrt(np.mean(noise, axis=0)))
+
+
+
+    # helper bandpass to clean components (in sim real bandpass is included in the system response template)
+    bandpass_helper = channelBandPassFilter()
+    bandpass = bandpass_helper.get_filter(frequencies_data, 11, 0, 0,
+                                          passband=[0.1, 0.7], filter_type="butter", order=10)
+    bandpass = np.abs(bandpass)
     
     plt.style.use("astroparticle_physics")
     pdf_name = f"figures/calibration_with_components_season{season}_st{station}.pdf"
     pdf = PdfPages(pdf_name)
 
     for i , channel_id in enumerate(channel_ids):
-        fig, ax = plt.subplots(1, 1)
+        fig, ax = plt.subplots(1, 1, figsize=(15, 10))
         ax.plot(frequencies_data, spectra_data[channel_id],
                           label="data",
                 )
         ax.plot(frequencies_data,
-                          sim_result[i],
-                          label=f"Final fit",
+                sim_result[i],
+                label=f"Final fit",
+                color="blue"
                           )
 
 
 
 
-        ax.plot(frequencies_data,
-                          sim_components["ice"][i],
-                          label=f"ice",
-                ls="dashed",
-                          )
-        ax.plot(frequencies_data,
-                          sim_components["electronic"][i],
-                          label=f"electronic",
-                ls="dashed",
-                          )
-        ax.plot(frequencies_data,
-                          sim_components["galactic"][i],
-                          label=f"galactic",
-                ls="dashed",
-                          )
+        if args.include_components:
+            ax.plot(frequencies_data,
+                              bandpass * sim_components["ice"][i],
+                              label=f"ice\n(scaled by gain)",
+                    ls="dashed",
+                    color="red"
+                              )
+            ax.plot(frequencies_data,
+                              bandpass * sim_components["electronic"][i],
+                              label=f"electronic\n(scaled by gain)",
+                    ls="dashed",
+                    color="green"
+                              )
+            ax.plot(frequencies_data,
+                              bandpass * sim_components["galactic"][i],
+                              label=f"galactic\n(scaled by gain)",
+                    ls="dashed",
+                    color="deeppink"
+                              )
+
+
+        if args.include_response_on_plot:
+            response_normalized = response_templates[i] / np.max(response_templates[i]) * np.max(sim_result[i]) / 2.
+            ax.plot(frequencies_data, 
+                    response_normalized,
+                    label="Response template\n(normalized)",
+                    ls="dashdot",
+                    color="black")
+        
+        if args.include_one_comp_noise:
+            ax.plot(frequencies_data,
+                    noise_from_eff_temp[i],
+                    label="one component\nnoise",
+                    ls="dashdot",
+                    color="deeppink")
+
+
 
         ax.set_xlim(0, 1.)
         ax.set_xlabel("frequency / GHz")
         ax.set_ylabel("amplitude / V")
-        ax.legend()
+        ax.legend(loc="upper right", fontsize=21)
         fig.suptitle(f"channel {channel_id}")
         fig.tight_layout()
         fig.savefig(pdf, format="pdf")

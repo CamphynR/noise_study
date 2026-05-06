@@ -1,4 +1,5 @@
 import argparse
+import json
 from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
@@ -18,8 +19,14 @@ if __name__ == "__main__":
 
     # DISCLAIMER WE DISTINGUISH BETWEEN OLD AND NEW DAQS, ONLY APPLICABLE FOR 2024
 
+    broken_channels_path = "configs/known_broken_channels.json"
+    with open(broken_channels_path, "r") as file:
+        known_broken_channels = json.load(file)
+
+    known_broken_channels = known_broken_channels[str(args.season)]
+
     # SETTINGS
-    station_ids = [11, 12, 13, 21, 22, 23, 24]
+    station_ids = [11, 12, 13, 21, 23, 24]
     stations_new_daq = [11, 12, 13, 23]
     stations_old_daq = [21, 22, 24]
 
@@ -42,10 +49,12 @@ if __name__ == "__main__":
 
 
     # READ CALIBRATION DATA
-    calibration_result_dir = "/user/rcamphyn/noise_study/absolute_amplitude_results"
+    calibration_result_dir = f"/user/rcamphyn/noise_study/absolute_amplitude_results/season{args.season}"
     calibration_per_station = []
     for station_id in station_ids:
         calibration_result_path = os.path.join(calibration_result_dir,
+                                               f"station{station_id}",
+                                               "default",
                 f"absolute_amplitude_calibration_season{args.season}_st{station_id}_best_fit.csv")
 
         calibration = pd.read_csv(calibration_result_path)
@@ -93,35 +102,77 @@ if __name__ == "__main__":
     # SUMMARIZE OVER ALL STATIONS
     # we distinguish between stations with a new and old DAQ (in 2024!)
     
-    fig, (ax_old_daq, ax_new_daq) = plt.subplots(1, 2)
-    for template in templates_used_over_all_stations:
+    if args.season == 2024:
+        fig, (ax_old_daq, ax_new_daq) = plt.subplots(1, 2)
+        for template in templates_used_over_all_stations:
 
-        template_counts = np.zeros_like(channel_ids)
-        for station_id in stations_old_daq:
-            calibration = calibration_per_station[station_ids.index(station_id)]
-            templates = calibration["best_fit_template"].to_numpy()
-            template_counts += template == templates
-        ax_old_daq.scatter(channel_ids, template_counts, s=80,
-                   marker=markers[template], color=colors[template],
-                   label = f"{template}")
+            template_counts = np.zeros_like(channel_ids)
+            for station_id in stations_old_daq:
+                calibration = calibration_per_station[station_ids.index(station_id)]
+                templates = calibration["best_fit_template"].to_numpy()
+                template_counts += template == templates
+            ax_old_daq.scatter(channel_ids, template_counts, s=80,
+                       marker=markers[template], color=colors[template],
+                       label = f"{template}")
 
-        template_counts = np.zeros_like(channel_ids)
-        for station_id in stations_new_daq:
-            calibration = calibration_per_station[station_ids.index(station_id)]
-            templates = calibration["best_fit_template"].to_numpy()
-            template_counts += template == templates
-        ax_new_daq.scatter(channel_ids, template_counts, s=80,
-                   marker=markers[template], color=colors[template],
-                   label = f"{template}")
+            template_counts = np.zeros_like(channel_ids)
+            for station_id in stations_new_daq:
+                calibration = calibration_per_station[station_ids.index(station_id)]
+                templates = calibration["best_fit_template"].to_numpy()
+                template_counts += template == templates
+            ax_new_daq.scatter(channel_ids, template_counts, s=80,
+                       marker=markers[template], color=colors[template],
+                       label = f"{template}")
 
-    ax_old_daq.set_title("old DAQ")
-    ax_new_daq.set_title("new DAQ")
-    for ax in (ax_old_daq, ax_new_daq):
+        ax_old_daq.set_title("old DAQ")
+        ax_new_daq.set_title("new DAQ")
+        for ax in (ax_old_daq, ax_new_daq):
+            ax.set_xticks(channel_ids)
+            ax.set_xticklabels(channel_ids, rotation=-90, size=12)
+            antenna_legend_elements = []
+            for j, antenna_type in enumerate([vpols, hpols, lpda_up, lpda_down]):
+                ax.bar(antenna_type, 4 * np.ones_like(antenna_type),
+                       width=1.,
+                       color=antenna_colors[j],
+                       alpha=0.4,
+                       zorder=-1)
+                antenna_legend_elements.append(Patch(facecolor=antenna_colors[j],
+                                                     label=antenna_type_names[j]))
+            ax.set_xlabel("Channel")
+            ax.set_ylabel("# uses")
+        antenna_type_legend = plt.legend(handles=antenna_legend_elements,
+                          loc="lower left", bbox_to_anchor=(1., 0.))
+        ax_new_daq.legend(loc="upper left", bbox_to_anchor=(1., 1.))
+        ax.add_artist(antenna_type_legend)
+        fig.tight_layout()
+        fig.savefig(pdf, format="pdf", bbox_inches="tight")
+        plt.close(fig)
+
+
+    else:
+
+        fig, ax = plt.subplots()
+        for template in templates_used_over_all_stations:
+
+            template_counts = np.zeros_like(channel_ids)
+            for station_id in station_ids:
+                calibration = calibration_per_station[station_ids.index(station_id)]
+                for channel_id in channel_ids:
+                    if channel_id in known_broken_channels[str(station_id)]:
+                        continue
+                
+                    template_used = template == calibration["best_fit_template"][channel_id]
+                    template_counts[channel_id] += template_used
+            ax.scatter(channel_ids, template_counts, s=80,
+                       marker=markers[template], color=colors[template],
+                       label = f"{template}")
+
+
         ax.set_xticks(channel_ids)
         ax.set_xticklabels(channel_ids, rotation=-90, size=12)
         antenna_legend_elements = []
         for j, antenna_type in enumerate([vpols, hpols, lpda_up, lpda_down]):
-            ax.bar(antenna_type, 4 * np.ones_like(antenna_type),
+            ax.bar(antenna_type, 6 * np.ones_like(antenna_type),
                    width=1.,
                    color=antenna_colors[j],
                    alpha=0.4,
@@ -130,14 +181,13 @@ if __name__ == "__main__":
                                                  label=antenna_type_names[j]))
         ax.set_xlabel("Channel")
         ax.set_ylabel("# uses")
-    antenna_type_legend = plt.legend(handles=antenna_legend_elements,
-                      loc="lower left", bbox_to_anchor=(1., 0.))
-    ax_new_daq.legend(loc="upper left", bbox_to_anchor=(1., 1.))
-    ax.add_artist(antenna_type_legend)
-    fig.tight_layout()
-    fig.savefig(pdf, format="pdf", bbox_inches="tight")
-    plt.close(fig)
-
+        antenna_type_legend = plt.legend(handles=antenna_legend_elements,
+                          loc="lower left", bbox_to_anchor=(1., 0.))
+        ax.legend(loc="upper left", bbox_to_anchor=(1., 1.))
+        ax.add_artist(antenna_type_legend)
+        fig.tight_layout()
+        fig.savefig(pdf, format="pdf", bbox_inches="tight")
+        plt.close(fig)
 
 
 

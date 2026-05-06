@@ -26,7 +26,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--season", type=int, default=2023)
     parser.add_argument("--station", "-s", type=int, nargs="+")
-    parser.add_argument("--use_db", action="store_true")
     args = parser.parse_args()
 
     season = args.season
@@ -83,10 +82,10 @@ if __name__ == "__main__":
     temperatures = np.linspace(100, 600, 10) # Kelvin
     for station_index, station_id in enumerate(station_ids):
         # custom response from calibration
-        calibration_result_path = f"/user/rcamphyn/noise_study/absolute_amplitude_results/absolute_amplitude_calibration_season2023_st{station_id}_best_fit.csv"
+        calibration_result_path = f"/user/rcamphyn/noise_study/absolute_amplitude_results/season{season}/station{station_id}/default/absolute_amplitude_calibration_season{season}_st{station_id}_best_fit.csv"
         calibration_results = pd.read_csv(calibration_result_path, index_col=None)
-        system_response_paths = ["sim/library/deep_templates_combined.json",
-                                 "sim/library/v2_v3_surface_impulse_responses.json"]
+        system_response_paths = ["sim/library/system_response_templates_deep.json",
+                                 "sim/library/system_response_templates_surface.json"]
         cal_gain = calibration_results["gain"].to_numpy()
             
 
