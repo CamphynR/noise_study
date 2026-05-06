@@ -107,8 +107,8 @@ if __name__ == "__main__":
     parser.add_argument("--select_runs_path", help = "path to select_runs json file", default=None)
     parser.add_argument("--filename_appendix", default = "", type=str)
     
-    parser.add_argument("--skip_clean", action = "store_true")
-    parser.add_argument("--test", action = "store_true", help = "enables test mode, which only uses one run of data ")
+    parser.add_argument("--skip_clean", action = "store_true", help="skips all cleaning specified in the config file")
+    parser.add_argument("--test", action = "store_true", help="enables test mode, which only uses one run of data ")
     parser.add_argument("--nr_batches", type=int, default=None, help="only for data, sims are fast enough")
     parser.add_argument("--batch_i", type=int, default=None, help="Only for data, sims are fast enough")
     args = parser.parse_args()
@@ -138,6 +138,8 @@ if __name__ == "__main__":
 
 
     root_dirs, is_root, is_nur, config = find_data_files(args, config)
+
+    print(root_dirs)
 
 
 

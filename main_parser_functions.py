@@ -242,7 +242,8 @@ def calculate_average_fft(reader, detector, config, args, logger, directory, cle
     clean = "raw" if args.skip_clean else "clean"
 
     average_frequency_spectrum = np.zeros((nr_channels, len(frequencies)))
-    squared_frequency_spectrum = np.zeros((nr_channels, len(frequencies)))
+    average_frequency_spectrum_K = np.zeros((nr_channels, len(frequencies)))
+    squared_frequency_spectrum_K = np.zeros((nr_channels, len(frequencies)))
     nr_events = 0
     for event in reader.run():
         station = event.get_station(args.station)
@@ -271,7 +272,7 @@ def calculate_average_fft(reader, detector, config, args, logger, directory, cle
                 cleaning_modules[cleaning_key].run(event, station, detector,
                                                    **run_kw)
         
-        for channel in station.iter_channels():
+        for channel_index, channel in enumerate(station.iter_channels()):
             channel_id = channel.get_id()
             ch_frequencies = channel.get_frequencies()
             assert np.all(frequencies == ch_frequencies), \
@@ -284,10 +285,15 @@ def calculate_average_fft(reader, detector, config, args, logger, directory, cle
             # this also means the variance changes
             spectrum = channel.get_frequency_spectrum()
             spectrum = np.abs(spectrum)
-            average_frequency_spectrum[channel_id] += spectrum**2
+            average_frequency_spectrum[channel_index] += spectrum**2
+
+            # We use a shifted algorithm to avoid floating point cancellation in the Var calculation
+            # see https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
+            K = spectrum[len(spectrum)//2]**2
+            average_frequency_spectrum_K[channel_index] += spectrum**2 - K
             # we will use the delta method to approximate the variance
             # first we estimate the population variance of spectrum**2
-            squared_frequency_spectrum[channel_id] += spectrum**4
+            squared_frequency_spectrum_K[channel_index] += (spectrum**2 - K)**2
 
 #            if args.test:
 #                if nr_events == 1:
@@ -311,10 +317,11 @@ def calculate_average_fft(reader, detector, config, args, logger, directory, cle
 
     average_frequency_spectrum /= nr_events
     # continue the calculation of the population variance
-    squared_frequency_spectrum /= nr_events
-    var_frequency_spectrum = squared_frequency_spectrum - average_frequency_spectrum**2
+    # note we should actually do * (nr_events / (nr_events - 1)) but we simplified the expression
+    var_frequency_spectrum = (squared_frequency_spectrum_K - average_frequency_spectrum_K**2 / nr_events)
     # the variance on the mean i.e. Var(mean(spectrum**2))
-    var_frequency_spectrum /= nr_events
+    var_frequency_spectrum /= (nr_events - 1)
+
     # convert to sqrt of the mean
     # we now apply the delta method to find the variance of sqrt(mean(spectrum**2))
     var_frequency_spectrum = (1./(4.*average_frequency_spectrum)) * var_frequency_spectrum
