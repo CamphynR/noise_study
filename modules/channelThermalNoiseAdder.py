@@ -22,7 +22,6 @@ from NuRadioReco.utilities import units
 logger = logging.getLogger('NuRadioReco.channelThermalNoiseAdder')
 
 
-
 class channelThermalNoiseAdder:
     """
     module to generate thermal noise, both from electronics and ice
@@ -36,7 +35,7 @@ class channelThermalNoiseAdder:
 
 
     @functools.lru_cache(maxsize=1024 * 32)
-    def get_cached_antenna_response(self, antenna_pattern, zen, azi, *ant_orient, use_db=True):
+    def get_cached_antenna_response(self, antenna_pattern, zen, azi, *ant_orient):
         return antenna_pattern.get_antenna_response_vectorized(self.freqs, zen, azi, *ant_orient)
 
 
@@ -71,7 +70,8 @@ class channelThermalNoiseAdder:
 
 
 
-    def begin(self, sim_library_dir, nr_phi_bins=64, debug=False):
+    def begin(self, sim_library_dir=None, nr_phi_bins=64, debug=False,
+              effective_temperature=None, thetas=None, channel_depths=None):
         """
         Set up important parameters for the module
 
@@ -94,20 +94,27 @@ class channelThermalNoiseAdder:
                                   f"{sim_library_dir}/eff_temperature_-3.0m_ntheta100_GL3.json", 
                                   ]
 
-        self.eff_temperature = {}
-        for temperature_file in self.temperature_files:
-            z_antenna, self.thetas, eff_temperature = self.get_temperature_from_json(temperature_file)
-            self.eff_temperature[z_antenna] = eff_temperature
+        if effective_temperature is not None:
+            self.eff_temperature = effective_temperature
+            self.thetas = thetas
+        else:
+            self.eff_temperature = {}
+            for temperature_file in self.temperature_files:
+                z_antenna, self.thetas, eff_temperature = self.get_temperature_from_json(temperature_file)
+                self.eff_temperature[z_antenna] = eff_temperature
 
-        self.nr_theta_bins = len(self.thetas)
+            self.nr_theta_bins = len(self.thetas)
 #        self.channel_depths = {0 : -100,
 #                               4 : -100,
 #                               7 : -40, 12: -1.0, 13: -1.0}
-        self.channel_depths = {i : -100 for i in [0, 1, 2, 3, 4, 8, 9, 10, 11, 21, 22, 23]}
-        for i in [5, 6, 7]:
-            self.channel_depths[i] = -40
-        for i in [12, 13, 14, 15, 16, 17, 18, 19, 20]:
-            self.channel_depths[i] = -1.0
+        if channel_depths is None:
+            self.channel_depths = {i : -100 for i in [0, 1, 2, 3, 4, 8, 9, 10, 11, 21, 22, 23]}
+            for i in [5, 6, 7]:
+                self.channel_depths[i] = -40
+            for i in [12, 13, 14, 15, 16, 17, 18, 19, 20]:
+                self.channel_depths[i] = -1.0
+        else:
+            self.channel_depths = channel_depths
 
         self.debug = debug
         if self.debug:
