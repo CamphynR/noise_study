@@ -1,0 +1,76 @@
+{
+    "save_dir" : "/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study",
+    "sim_library_dir" : "/user/rcamphyn/noise_study/sim/library",
+
+    "include_det_signal_chain" : 0,
+    "use_s_param_hardware_response" : 0,
+
+    "digitizer" : "radiant_v2",
+    "season" : 2023,
+
+    "use_templates" : 1,
+    "template_channels" : {
+        "ice" : [0, 4, 5, 6, 7, 12, 13],
+        "eletronic" : [0, 12],
+        "galactic" : [0, 4, 5, 6, 7, 12, 13]},
+    "template_mapping" : {
+        "ice" : {
+            "0" : [0, 1, 2, 3, 9, 10, 22, 23],
+            "4" : [4, 8, 11, 21],
+            "5" : [5],
+            "6" : [6],
+            "7" : [7],
+            "12" : [12, 14, 15, 17, 18, 20],
+            "13" : [13, 16, 19]
+        },
+        "electronic" : {
+            "0" : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 21, 22, 23],
+            "12" : [12, 13, 14, 15, 16, 17, 18, 19, 20]
+        },
+        "galactic" : {
+            "0" : [0, 1, 2, 3, 9, 10, 22, 23],
+            "4" : [4, 8, 11, 21],
+            "5" : [5],
+            "6" : [6],
+            "7" : [7],
+            "12" : [12, 14, 15, 17, 18, 20],
+            "13" : [13, 16, 19]
+        }
+    },
+
+
+    "channels_to_include" : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
+    
+
+    "noise_sources" : ["ice", "electronic", "galactic"],
+    "include_sum" : 0,
+
+    "eff_temperature_files" : [
+        "sim/library/eff_temperature_-100.0m_ntheta100_GL3_400MHz_summer.json",
+        "sim/library/eff_temperature_-80.0m_ntheta100_GL3_400MHz_summer.json",
+        "sim/library/eff_temperature_-60.0m_ntheta100_GL3_400MHz_summer.json",
+        "sim/library/eff_temperature_-40.0m_ntheta100_GL3_400MHz_summer.json",
+        "sim/library/eff_temperature_-1.0m_ntheta100_GL3_400MHz_summer.json"
+    ],
+
+
+    "electronic_temperature" : 80,
+    "electronic_noise_type" : "measurement",
+    "electronic_noise_measurements": ["/user/rcamphyn/noise_study/RF_chain_testing/october_drabsurf_freezer/Calibrated_noise_figures/Old_DRAB_calibrated_noisetemp_-40C.csv", "/user/rcamphyn/noise_study/electronic_noise_measurements/new/Old_Surf_calibrated_noisetemp_0C.csv"],
+
+    "gal_sky_model" : "gsm2008",
+    "gal_ice_model" : "greenland_poly5",
+    "gal_attenuation_model" : "GL3",
+
+    "channel_types" : {
+        "VPol" : [0, 1, 2, 3, 5, 6, 7, 9, 10, 22, 23],
+        "HPol": [4, 8, 11, 21],
+        "LPDA" : [12, 13, 14, 15, 16, 17, 18, 19, 20]
+    },
+
+    "antenna_models" : {
+        "VPol" : "RNOG_vpol_v4_final_IGLU_n1.10",
+        "HPol" : "RNOG_hpol_v4_8inch_center_n1.74",
+        "LPDA" : "createLPDA_100MHz_InfFirn_n1.4"}
+
+}
