@@ -23,6 +23,6 @@
                     "cache_calibration" : 0},
 
     "detector_time" : "2024-01-02",
-    "run_time_range" : ["2024-01-01", "2024-12-31"],
+    "run_time_range" : ["2024-01-01", "2024-06-24"],
     "max_trigger_rate" : 2
 }

@@ -2,6 +2,7 @@ import argparse
 import copy
 import glob
 import json
+import logging
 import numpy as np
 import os
 from scipy import interpolate
@@ -59,7 +60,17 @@ def rescale_response(response, integration_range = [0.08*units.GHz, 0.8*units.GH
     if return_norm:
         return new_response, max_response
     return new_response
-    
+
+
+def apply_bandpass(response, bandpass_kwargs,
+                    nr_samples=2048, sampling_rate=3.2*units.GHz):
+    frequencies = np.fft.rfftfreq(nr_samples, d=1./sampling_rate)
+    bandpass_filter = channelBandPassFilter()
+    bandpass_filter = bandpass_filter.get_filter(frequencies, 0, 0, 0,
+                                                 **bandpass_kwargs)
+    response_tmp = bandpass_filter * response(frequencies)
+    new_response = interpolate.interp1d(frequencies, response_tmp)
+    return response
 
 
 def convert_response_to_spectrum(response_dic, response_channel_key, window = [-15, 40], bandpass_kwargs=None):
@@ -145,10 +156,18 @@ class systemResponseTimeDomainIncorporator():
         return
 
 
-    def begin(self, det, response_path=None, normalize=True, overwrite_key=None, bandpass_kwargs=None):
+    def begin(self, det=0, station_id=0, response_path=None, normalize=True, overwrite_key=None, bandpass_kwargs=None):
         """
         only_response_path: the module will not try to make responses for deep helper and surface but will only load the given response path
         """
+        if det and station_id:
+            station_info = det.get_station(station_id)
+            self.sampling_rate = station_info["sampling_rate"]
+            self.nr_samples = station_info["nr_samples"]
+        else:
+            self.sampling_rate = 3.2 * units.GHz
+            self.nr_samples = 2048
+            logging.warning(f"no det and station_id given, using default values for (sampling_rate, nr_samples) = ({self.sampling_rate}, {self.nr_samples})")
 
         if bandpass_kwargs is not None and not isinstance(bandpass_kwargs, dict):
             raise TypeError("bandpass only accepts a dict of kwargs for the module channelBandPassFilter's function get_filter")
@@ -246,6 +265,7 @@ class systemResponseTimeDomainIncorporator():
 
         if normalize:
             self.response["deep"]["gain"], self.normalizations["deep"] = rescale_response(self.response["deep"]["gain"], return_norm=True)
+            self.response["helper"]["gain"], self.normalizations["helper"] = rescale_response(self.response["helper"]["gain"], return_norm=True)
             self.response["surface"]["gain"], self.normalizations["surface"] = rescale_response(self.response["surface"]["gain"], return_norm=True)
 
         return

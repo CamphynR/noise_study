@@ -11,11 +11,11 @@ import pickle
 import subprocess
 
 from NuRadioReco.detector.RNO_G.rnog_detector_mod import ModDetector
-#from NuRadioReco.detector.RNO_G.rnog_detector import Detector
 from NuRadioReco.detector.detector import Detector
 from NuRadioReco.framework.event import Event
 from NuRadioReco.framework.station import Station
 from NuRadioReco.framework.channel import Channel
+from NuRadioReco.modules.channelIceThermalNoiseAdder import channelIceThermalNoiseAdder
 from NuRadioReco.modules.channelGenericNoiseAdder import channelGenericNoiseAdder
 from NuRadioReco.modules.channelGalacticNoiseAdder import channelGalacticNoiseAdder
 from NuRadioReco.modules.io.eventWriter import eventWriter
@@ -23,16 +23,16 @@ from NuRadioReco.modules.RNO_G.hardwareResponseIncorporator import hardwareRespo
 from NuRadioReco.utilities import units, fft
 from NuRadioReco.utilities.signal_processing import calculate_vrms_from_temperature
 
-from dbAmplifier import dbAmplifier
-from modules.channelThermalNoiseAdder import channelThermalNoiseAdder
-from modules.channelGalacticSunNoiseAdder import channelGalacticSunNoiseAdder
 from modules.systemResponseTimeDomainIncorporator import systemResponseTimeDomainIncorporator
 
 from utilities.utility_functions import read_pickle, write_pickle, read_config, create_nested_dir
-from temp_to_noise import temp_to_volt
 
 
 from modules.channelNoiseFromTemperatureAdder import channelNoiseFromTemperatureAdder
+from modules.channelGalacticNoiseAdderAntennaFreqShift import channelGalacticNoiseAdderAntennaFreqShift
+
+
+
 
 
 def padding_function(trace):
@@ -45,7 +45,11 @@ def padding_function(trace):
 def create_sim_event(station_id, channel_ids, detector, frequencies, sampling_rate):
     event = Event(run_number=-1, event_id=-1)
     station = Station(station_id)
-    station.set_station_time(detector.get_detector_time())
+    # randomize this over whole day so that we average galactic noise over 24h in final sim 
+    detector_time = detector.get_detector_time()
+    station_time_of_day = int(24 * np.random.rand())
+    station_time = datetime.datetime(detector_time.year, detector_time.month, detector_time.day, station_time_of_day, 0, 0)
+    station.set_station_time(station_time)
     for channel_id in channel_ids:
         channel = Channel(channel_id)
         channel.set_frequency_spectrum(np.zeros_like(frequencies, dtype=np.complex128), sampling_rate)
@@ -71,10 +75,14 @@ def create_thermal_noise_events(nr_events, station_id, detector,
                                 noise_sources=["ice", "electronic", "galactic"],
                                 include_sum = True,
                                 electronic_temperature=80*units.kelvin,
+                                gal_ice_model="greenland_poly5",
+                                gal_attenuation_model="GL3",
                                 passband = None,
                                 padding_length=8192,
                                 use_s_param_hardware=False,
-                                debug=False):
+                                debug=False,
+                                antenna_shift=None,
+                                print_progress=False):
     # electronic noise temperature, refer to eric's POS for this (PoS(ICRC2023)1171)
 
     # detector and trace parameters
@@ -82,6 +90,14 @@ def create_thermal_noise_events(nr_events, station_id, detector,
     channel_ids = np.arange(24)
     if choose_channels is not None:
         channel_ids = choose_channels 
+
+
+    if config["use_templates"]:
+        template_mapping = {}
+        for noise_source in noise_sources:
+            template_mapping[noise_source] = {ch_id : int(tmpl_id)
+                                                for tmpl_id, ch_ids in config["template_mapping"][noise_source].items()
+                                                for ch_id in ch_ids}
 
 #    # need to still implement trigger option for get_number_of_samples
 #    trigger = config["digitizer"] == "flower"
@@ -112,8 +128,8 @@ def create_thermal_noise_events(nr_events, station_id, detector,
         amplitude = calculate_vrms_from_temperature(electronic_temperature, bandwidth=[min_freq, max_freq], impedance=resistance)
 
 
-    thermal_noise_adder = channelThermalNoiseAdder()
-    thermal_noise_adder.begin(sim_library_dir=config["sim_library_dir"],
+    thermal_noise_adder = channelIceThermalNoiseAdder()
+    thermal_noise_adder.begin(eff_temperature_files=config["eff_temperature_files"],
                               debug=debug)
 
     if electronic_noise_type == "flat_temp":
@@ -126,9 +142,22 @@ def create_thermal_noise_events(nr_events, station_id, detector,
         generic_noise_adder.begin(eletronic_noise_measurements)
         electronic_noise_kwargs = dict()
 
-    galactic_noise_adder = channelGalacticNoiseAdder()
-    galactic_noise_adder.begin(freq_range=[min_freq, max_freq],
-                               caching=True)
+
+
+    if antenna_shift is not None:
+        galactic_noise_adder = channelGalacticNoiseAdderAntennaFreqShift()
+        galactic_noise_adder.begin(freq_range=[min_freq, max_freq],
+                                    ice_model=gal_ice_model,
+                                   attenuation_model=gal_attenuation_model,
+                                   caching=True)
+    else:
+        galactic_noise_adder = channelGalacticNoiseAdder()
+        galactic_noise_adder.begin(skymodel=config["gal_sky_model"],
+                                   freq_range=[min_freq, max_freq],
+                                   ice_model=gal_ice_model,
+                                   attenuation_model=gal_attenuation_model,
+                                   caching=True)
+
 
     if use_s_param_hardware:
         system_response = hardwareResponseIncorporator()
@@ -156,27 +185,65 @@ def create_thermal_noise_events(nr_events, station_id, detector,
     for _ in range(nr_events):
         if debug:
             print(f"on event {_}")
+        if print_progress:
+            print(f"on event {_}/{nr_events}")
         nr_event_types = len(noise_sources)
         if include_sum:
             nr_event_types += 1
-        event_types = [create_sim_event(station_id, channel_ids, detector,
-                                        frequencies, sampling_rate) 
-                       for event_type in range(nr_event_types)]
+        if config["use_templates"]:
+            channel_ids_to_sim = {noise_source : np.unique([template_mapping[noise_source][ch_id] for ch_id in channel_ids])
+                                  for noise_source in noise_sources}
+
+        else:
+            channel_ids_to_sim = {noise_source : channel_ids for noise_source in noise_sources}
+
+        event_types_tmp = [create_sim_event(station_id,
+                                            channel_ids_to_sim[noise_source],
+                                            detector,
+                                            frequencies, sampling_rate) 
+                           for event_type, noise_source in zip(range(nr_event_types), noise_sources)]
         
         for i, noise_source in enumerate(noise_sources):
-            station = event_types[i].get_station()
+            station = event_types_tmp[i].get_station()
             if noise_source == "ice":
-                thermal_noise_adder.run(event_types[i], station, detector, passband= [min_freq, max_freq])
+                thermal_noise_adder.run(event_types_tmp[i], station, detector, passband= [min_freq, max_freq],
+                                        antenna_shift=antenna_shift)
             elif noise_source == "electronic":
-                generic_noise_adder.run(event_types[i], station, detector, **electronic_noise_kwargs)
+                generic_noise_adder.run(event_types_tmp[i], station, detector, **electronic_noise_kwargs)
             elif noise_source == "galactic":
-                galactic_noise_adder.run(event_types[i], station, detector)
+                if antenna_shift is not None:
+                    galactic_noise_adder.run(event_types_tmp[i], station, detector,
+                                             antenna_shift=antenna_shift)
+                else:
+                    galactic_noise_adder.run(event_types_tmp[i], station, detector)
+
             elif noise_source == "galactic_min":
                 time = datetime.datetime(2023, 8, 13, 11)
-                galactic_noise_adder.run(event_types[i], station, detector, manual_time=time)
+                galactic_noise_adder.run(event_types_tmp[i], station, detector, manual_time=time)
             elif noise_source == "galactic_max":
                 time = datetime.datetime(2023, 8, 13, 23)
-                galactic_noise_adder.run(event_types[i], station, detector, manual_time=time)
+                galactic_noise_adder.run(event_types_tmp[i], station, detector, manual_time=time)
+
+
+        if config["use_templates"]:
+            event_types = [create_sim_event(station_id,
+                                            channel_ids,
+                                            detector,
+                                            frequencies, sampling_rate) 
+                               for event_type in range(nr_event_types)]
+            for i, noise_source in enumerate(noise_sources):
+                station = event_types[i].get_station()
+                station_template = event_types_tmp[i].get_station()
+                for channel in station.iter_channels():
+                    channel_id = channel.get_id()
+                    template_id = template_mapping[noise_source][channel_id]
+                    channel_template = station_template.get_channel(template_id)
+                    channel.set_frequency_spectrum(channel_template.get_frequency_spectrum(),
+                                                   sampling_rate="same")
+                    
+        else:
+            event_types = event_types_tmp
+
 
         if include_sum:
             # traces_sum = np.zeros((len(channel_ids), nr_samples))
@@ -210,11 +277,13 @@ def create_thermal_noise_events(nr_events, station_id, detector,
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--station", "-s", default=23, type=int)
-    parser.add_argument("--config", default="sim/thermal_noise/config_efields.json")
+    parser.add_argument("--config", default="sim/thermal_noise/configs/config_sim.json")
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--print_progress", action="store_true")
     parser.add_argument("--batch_i", default=None)
     parser.add_argument("--name_appendix", default=None)
     args = parser.parse_args()
+
 
     config = read_config(args.config)
 
@@ -222,7 +291,7 @@ if __name__ == "__main__":
         save_dir = f"/tmp/simulations/thermal_noise_traces"
     else:
         save_dir = f"/user/rcamphyn/tmp/simulations/thermal_noise_traces"
-    date = datetime.datetime.now().strftime("%Y_%m_%d_%H")
+    date = datetime.datetime.now().strftime("%Y_%m_%d")
     save_dir +=f"/job_{date}"
     if args.debug:
         save_dir += "_test"
@@ -231,9 +300,21 @@ if __name__ == "__main__":
     if args.name_appendix is not None:
         save_dir += args.name_appendix
 
+
+
+    #testing
+#    antenna_shift = -50 * units.MHz 
+    antenna_shift = None
+
+
+
+
     create_nested_dir(save_dir)
     settings_dict = {**config, **vars(args)}
     settings_dict["simulation"] = True
+    if antenna_shift is not None:
+        settings_dict["antenna_shift"] = antenna_shift
+
     config_file = f"{save_dir}/station{args.station}/{os.path.basename(args.config)}"
     os.makedirs(f"{save_dir}/station{args.station}", exist_ok=True)
     if not os.path.exists(config_file):
@@ -252,9 +333,15 @@ if __name__ == "__main__":
     channels_to_include = config["channels_to_include"]
 
 
-    channel_types = {"VPol" : [0, 1, 2, 3, 5, 6, 7, 9, 10, 22, 23],
-                     "HPol" : [4, 8, 11, 21],
-                     "LPDA" : [12, 13, 14, 15, 16, 17, 18, 19, 20]}
+    channel_types = config["channel_types"]
+
+#    channel_types = {
+#            "VPol_100m" : [0, 1, 2, 3, 9, 10, 22, 23],
+#            "VPol_80m" : [5],
+#            "VPol_60m" : [6],
+#            "VPol_40m" : [7],
+#            "HPol" : [4, 8, 11, 21],
+#            "LPDA" : [12, 13, 14, 15, 16, 17, 18, 19, 20]}
 #    antenna_models = {"VPol" : "RNOG_vpol_v3_5inch_center_n1.74",
 #                      "HPol" : "RNOG_hpol_v4_8inch_center_n1.74",
 #                      "LPDA" : "createLPDA_100MHz_InfFirn_n1.4"}
@@ -264,66 +351,74 @@ if __name__ == "__main__":
     detector_time = Time(f"{config['season']}-8-1")
 
 
-    json_filename = f"/user/rcamphyn/software/NuRadioMC/NuRadioReco/detector/RNO_G/RNO_season_{config['season']}.json"
-    with open(json_filename, "r") as json_file:
-        det_dict = json.load(json_file)
-        for key in det_dict["channels"].keys():
-            if det_dict["channels"][key]["channel_id"] in channel_types["VPol"]:
-                det_dict["channels"][key]["ant_type"] = antenna_models["VPol"]
-            if det_dict["channels"][key]["channel_id"] in channel_types["HPol"]:
-                det_dict["channels"][key]["ant_type"] = antenna_models["HPol"]
-            if det_dict["channels"][key]["channel_id"] in channel_types["LPDA"]:
-                det_dict["channels"][key]["ant_type"] = antenna_models["LPDA"]
-
-    # when using a dict like this you have to deserialize the jsonbecause TinyDB already serialized the dates to strings
-    for station in det_dict["stations"].values():
-        for key, val in station.items():
-            if "{TinyDate}" in str(val):
-                station[key] = Time(val.split(":", 1)[1], format="isot")
-
-    for channel in det_dict["channels"].values():
-        for key, val in channel.items():
-            if "{TinyDate}" in str(val):
-                channel[key] = Time(val.split(":", 1)[1], format="isot")
-
-    detector = Detector(dictionary=det_dict, source="dictionary", antenna_by_depth=False)
-    detector.update(detector_time)
-    logger.debug("done querying detector")
-
-
-# For use when 2024 is implemented in DB
-#    detector = ModDetector(log_level=log_level,
-#                           select_stations=station_id,
-#                            )
-#                           database_time=detector_time)
-
-#    for channel_id in channels_to_include:
-#        if channel_id in channel_types["VPol"]:
-#            antenna_model = antenna_models["VPol"]
-#            detector.modify_channel_description(station_id, channel_id, ["signal_chain","VEL"], antenna_model)
+    # For use when testing during a DESY server blackout
+    # ==============================
+    # DO NOT USE FOR ACTUAL ANALYSIS
+    # ==============================
+#    json_filename = f"/user/rcamphyn/software/NuRadioMC/NuRadioReco/detector/RNO_G/RNO_season_{config['season']}.json"
+#    with open(json_filename, "r") as json_file:
+#        det_dict = json.load(json_file)
+#        for key in det_dict["channels"].keys():
+#            if det_dict["channels"][key]["channel_id"] in channel_types["VPol"]:
+#                det_dict["channels"][key]["ant_type"] = antenna_models["VPol"]
+#            if det_dict["channels"][key]["channel_id"] in channel_types["HPol"]:
+#                det_dict["channels"][key]["ant_type"] = antenna_models["HPol"]
+#            if det_dict["channels"][key]["channel_id"] in channel_types["LPDA"]:
+#                det_dict["channels"][key]["ant_type"] = antenna_models["LPDA"]
 #
-#        elif channel_id in channel_types["HPol"]:
-#            antenna_model = antenna_models["HPol"]
-#            detector.modify_channel_description(station_id, channel_id, ["signal_chain","VEL"], antenna_model)
+#    # when using a dict like this you have to deserialize the jsonbecause TinyDB already serialized the dates to strings
+#    for station in det_dict["stations"].values():
+#        for key, val in station.items():
+#            if "{TinyDate}" in str(val):
+#                station[key] = Time(val.split(":", 1)[1], format="isot")
+#
+#    for channel in det_dict["channels"].values():
+#        for key, val in channel.items():
+#            if "{TinyDate}" in str(val):
+#                channel[key] = Time(val.split(":", 1)[1], format="isot")
+#
+#    detector = Detector(dictionary=det_dict, source="dictionary", antenna_by_depth=False)
 
+
+    detector = ModDetector(log_level=log_level,
+                           select_stations=station_id,
+                            )
+
+    detector.update(detector_time)
+    for channel_type, channel_ids in channel_types.items():
+        antenna_model = antenna_models[channel_type]
+        for channel_id in channel_ids:
+            detector.modify_channel_description(station_id, channel_id, ["signal_chain", "VEL"], antenna_model)
+
+
+
+    logger.debug("done querying detector")
 
 
     noise_sources = config["noise_sources"]
     include_sum = config["include_sum"]
     electronic_temperature = config["electronic_temperature"] * units.kelvin
+    gal_ice_model = config["gal_ice_model"]
+    gal_attenuation_model = config["gal_attenuation_model"]
+    
+
 
     event_writer = eventWriter()
 
-    def events_process(batch_i, debug=False):
+    def events_process(batch_i, channels_to_include=np.arange(24), debug=False):
 
         events = create_thermal_noise_events(events_per_batch, args.station, detector, config,
                                              choose_channels = channels_to_include,
                                              include_det_signal_chain=config["include_det_signal_chain"],
                                              noise_sources=noise_sources, include_sum=include_sum,
                                              electronic_temperature=electronic_temperature,
+                                             gal_ice_model=gal_ice_model,
+                                             gal_attenuation_model=gal_attenuation_model,
                                              passband=[10 * units.MHz, 1600 * units.MHz],
                                              use_s_param_hardware=config["use_s_param_hardware_response"],
-                                             debug=debug
+                                             debug=debug,
+                                             antenna_shift=antenna_shift,
+                                             print_progress=args.print_progress
                                              )
 
 
@@ -353,41 +448,53 @@ if __name__ == "__main__":
             return events
 
     if not args.debug:
-        if args.batch_i is None:
-            nr_batches = 10
-            events_per_batch = 200
-            with multiprocessing.Pool() as p:
-                p.map(events_process, range(nr_batches))
-        else:
-            events_per_batch = 200
-            events_process(args.batch_i)
+        events_per_batch = 200
+        events_process(args.batch_i, channels_to_include=channels_to_include)
 
 
 
 
     if args.debug:
+        import datetime
+        from matplotlib.backends.backend_pdf import PdfPages
         nr_batches = 1
-        events_per_batch = 200
-        noise_sources = ["electronic"]
-        events = events_process(0, debug=False)
+        events_per_batch = 20
+        channel_test_ids = [0]
+        noise_sources = ["galactic"]
+        t0 = datetime.datetime.now()
+        events = events_process(0, channels_to_include=channel_test_ids, debug=True)
+        dt = datetime.datetime.now() - t0
+        print(f"Took {dt} to generate {nr_batches} batches of {events_per_batch} events per batch")
 
-        labels = ["ice"]
-#        labels = ["ice", "electronic", "galactic", "sum"]
-        fig, ax = plt.subplots(figsize=(20,10))
-        freq_spectra = []
 
-        for i, event in enumerate(events[0]):
-            station = event.get_station()
-            channel = station.get_channel(0)
-            nr_samples = channel.get_number_of_samples()
-            sampling_rate = channel.get_sampling_rate()
-            frequencies = np.fft.rfftfreq(nr_samples, d = 1./sampling_rate)
-            frequency_spectrum = channel.get_frequency_spectrum()
-            freq_spectra.append(frequency_spectrum)
-        frequency_spectrum_mean = np.mean(np.abs(freq_spectra), axis=0)
+        spectra = []
+        for noise_source_i, _ in enumerate(noise_sources):
+            spectra_noise_source = []
+            for i, event in enumerate(events[noise_source_i]):
+                station = event.get_station()
+                spectra_ch = []
+                for channel_test_id in channel_test_ids:
+                    channel = station.get_channel(channel_test_id)
+                    frequencies = channel.get_frequencies()
+                    frequency_spectrum = channel.get_frequency_spectrum()
+                    spectra_ch.append(frequency_spectrum)
+                spectra_noise_source.append(spectra_ch)
+            spectra.append(spectra_noise_source)
+        spectra_mean = np.mean(np.abs(spectra), axis=1)
 
-        ax.plot(frequencies, frequency_spectrum_mean)
-        ax.set_xlabel("freq / GHz")
-        ax.set_ylabel("Spectral amplitude / V/GHZ")
-        ax.set_xlim(None, 1.)
-        fig.savefig("test_sim.png")
+
+        plt.style.use("retro")
+        pdf = PdfPages("figures/tests/test_sim.pdf")
+
+        for i, channel_test_id in enumerate(channel_test_ids):
+            fig, ax = plt.subplots()
+            for noise_source_i, noise_source in enumerate(noise_sources):
+                ax.plot(frequencies, spectra_mean[noise_source_i, i], label=noise_source)
+
+            ax.set_xlabel("freq / GHz")
+            ax.set_ylabel("Spectral amplitude / V/GHZ")
+            ax.set_xlim(None, 1.)
+            ax.legend()
+            fig.suptitle(f"channel {channel_test_id}")
+            fig.savefig(pdf, format="pdf")
+        pdf.close()

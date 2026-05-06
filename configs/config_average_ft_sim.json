@@ -13,7 +13,6 @@
     "savename" : "",
 
     "cleaning":{
-        "channelBandpassFilter" : {"begin_kwargs" : {}, "run_kwargs" : {"passband" : [0.01, 0.7], "filter_type" : "butter", "order" : 10}}
     },
 
     "calibration" : {"11": "linear", "12" : "linear", "13" : "linear", "21" : "linear", "22" : "linear", "23" : "linear", "24" : "linear"},

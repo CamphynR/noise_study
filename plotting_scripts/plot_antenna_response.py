@@ -12,7 +12,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--station", "-s", type=int, default=11)
     parser.add_argument("--channel", "-c", type=int, default=0)
-    parser.add_argument("--antenna_model", type=str, default=None)
+    parser.add_argument("--antenna_model", type=str, nargs="+")
     args = parser.parse_args()
     
 
@@ -22,12 +22,10 @@ if __name__ == "__main__":
     detector.update(detector_time)
 
 
-    if args.channel == 101 or args.antennamodel is not None:
-        args.channel = 101
+    if args.antennamodel:
         antenna_model = args.antenna_model
 
         antenna_test_types = {"vpol" : 0, "hpol" : 4, "LPDA" : 12}
-        args.channel = 0
         for key in antenna_test_types:
             if key in antenna_model:
                 args.channel = antenna_test_types[key]

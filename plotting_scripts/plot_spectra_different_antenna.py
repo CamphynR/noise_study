@@ -2,8 +2,10 @@ import argparse
 import os
 import logging
 import glob
+import natsort
 import numpy as np
 from scipy import signal
+from matplotlib import colormaps
 import matplotlib.pyplot as plt
 
 from NuRadioReco.utilities import fft
@@ -26,9 +28,13 @@ if __name__ == '__main__':
     parser.add_argument("-p", "--pickles", nargs = "+")
     parser.add_argument("--plot_range", action="store_true")
     args = parser.parse_args()
+
+    args.pickles = natsort.natsorted(args.pickles)
     
     # Files used for different antenna models were stored here
     # /pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/average_ft/antenna_model_variations
+
+    n = np.array([1.3, 1.4, 1.5, 1.6, 1.7, 1.74])
     
     spectra = []
     var_spectra = []
@@ -49,12 +55,21 @@ if __name__ == '__main__':
 
 
     plt.style.use("astroparticle_physics")
+
+    cmap_name = "viridis"
+    cmap = colormaps[cmap_name].resampled(len(args.pickles)) 
+    cmap_im = plt.imshow(n[np.newaxis, :], cmap=cmap)
+    plt.colorbar(cmap_im)
+    plt.savefig("figures/test")
+    plt.clf()
+
     channel_id = 0
     channel_mapping = {key : "VPol" for key in [0, 1, 2, 3, 5, 6, 7 , 9, 10, 22, 23]}
     for key in [4, 8, 11, 21]:
         channel_mapping[key] = "HPol"
     for key in [12, 13, 14, 15, 16, 17, 18, 19, 20]:
         channel_mapping[key] = "LPDA"
+
     fig, ax = plt.subplots()
     if args.plot_range:
         spectra_tmp = spectra[:,channel_id].T
@@ -63,10 +78,24 @@ if __name__ == '__main__':
         plt.fill_between(freqs, spectra_minima, spectra_maxima)
     else:
         for i, spectrum in enumerate(spectra):
-            ax.plot(freqs, np.abs(spectrum[channel_id]), label = f"spectrum {antenna_models[i][channel_mapping[channel_id]]}")
-#    ax.legend(loc = "lower center", fontsize=12)
+            if "174" not in args.pickles[i]:
+                ls = "solid"
+                label = f"n = {n[i]}"
+                lw = 1.
+                alpha = 0.7
+            else:
+                ls = "solid"
+                label = f"n = 1.74"
+                lw = 1.5
+                alpha = 1
+            ax.plot(freqs, np.abs(spectrum[channel_id]), label=label,
+#                    color=cmap_im.cmap((n[i] - n[0])/(n[-1] - n[0])),
+                     lw=lw, ls=ls, alpha=alpha)
+    ax.legend(loc="lower right", fontsize=12, ncols=3)
+#    cbar = fig.colorbar(cmap_im, ax=ax)
+#    cbar.ax.set_ylabel("index of refraction")
     ax.set_xlim(0,1.)
     ax.set_xlabel("freq / GHz")
     ax.set_ylabel("amplitude / V/GHz")
     fig.tight_layout()
-    fig.savefig(f"figures/spectra_different_antenna.png", dpi=300)
+    fig.savefig(f"figures/spectra_different_antenna.png", dpi=300, bbox_inches="tight")

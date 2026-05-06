@@ -20,6 +20,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog = '%(prog)s')
     parser.add_argument("--pickle", nargs="+")
     parser.add_argument("--labels", default=None, nargs="+")
+    parser.add_argument("--include_var", action="store_true",
+                        help="also plot variation on the spectrum")
     args = parser.parse_args()
     
     if args.labels is None:
@@ -28,7 +30,8 @@ if __name__ == '__main__':
         labels = args.labels
 
     plt.style.use("retro")
-    pdf = PdfPages("figures/tests/test_average_ft_batch.pdf")
+    pdf_name = "figures/tests/test_average_ft_batch.pdf"
+    pdf = PdfPages(pdf_name)
     for channel_id in np.arange(24):
         if len(args.pickle) == 2:
             fig, (ax, ax_res) = plt.subplots(2, 1, sharex=True, height_ratios=(2, 1))
@@ -37,7 +40,7 @@ if __name__ == '__main__':
         for i, pickle in enumerate(args.pickle):
             frequency, frequency_spectrum, var_frequency_spectrum, header = read_average_freq_spectrum_from_pickle(pickle)
             nr_channels = len(frequency_spectrum)
-            std_on_mean_frequency_spectrum = np.sqrt(var_frequency_spectrum) / np.sqrt(header["nr_events"])
+            std_on_mean_frequency_spectrum = np.sqrt(var_frequency_spectrum)
 #            std_frequency_spectrum = np.sqrt(var_frequency_spectrum)
             if args.labels is None:
                 try:
@@ -46,17 +49,18 @@ if __name__ == '__main__':
                 except:
                     labels[i] = Time(header["begin_time"], format="unix").strftime("%d %B")
             ax.plot(frequency, frequency_spectrum[channel_id], label = labels[i], lw=2.)
-            ax.fill_between(frequency,
-                             frequency_spectrum[channel_id] - std_on_mean_frequency_spectrum[channel_id],
-                             frequency_spectrum[channel_id] + std_on_mean_frequency_spectrum[channel_id],
-                             alpha=0.5)
+            if args.include_var:
+                ax.fill_between(frequency,
+                                 frequency_spectrum[channel_id] - std_on_mean_frequency_spectrum[channel_id],
+                                 frequency_spectrum[channel_id] + std_on_mean_frequency_spectrum[channel_id],
+                                 alpha=0.5)
             sampling_rate = 3.2 * units.GHz
             trace_tmp = fft.freq2time(frequency_spectrum[channel_id], sampling_rate)
         if len(args.pickle) == 2:
             frequency_prev, frequency_spectrum_prev, var_frequency_spectrum_prev, header_prev = read_average_freq_spectrum_from_pickle(args.pickle[0])
             frequency_spectrum[frequency_spectrum==0] = 1e-9
             residuals = (frequency_spectrum - frequency_spectrum_prev) / frequency_spectrum
-            freq_range = [0.01, 0.3]
+            freq_range = [0.1, 0.6]
             selection = np.logical_and(freq_range[0] < frequency, frequency < freq_range[1])
             ax_res.plot(frequency[selection], residuals[channel_id][selection])
             ax_res.set_ylim(-1., 1.)
@@ -69,8 +73,10 @@ if __name__ == '__main__':
         ax.set_xlabel("freq / GHz")
         ax.set_ylabel("spectral amplitude / V/GHz")
         ax.set_title(f"Channel {channel_id}")
+        fig.tight_layout()
         fig.savefig(pdf, format="pdf", bbox_inches="tight")
         plt.close()
         if channel_id == nr_channels - 1:
             break
     pdf.close()
+    print(f"Saved as {pdf_name}")

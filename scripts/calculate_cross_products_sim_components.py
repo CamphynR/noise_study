@@ -1,5 +1,6 @@
 import argparse
 import glob
+import json
 import matplotlib.pyplot as plt
 from natsort import natsorted
 import numpy as np
@@ -28,6 +29,7 @@ def combine_times(begin_time1, end_time1, begin_time2, end_time2):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--station", "-s", type=int, default=11)
+    parser.add_argument("--index", type=int)
     args = parser.parse_args()
 
     
@@ -35,13 +37,27 @@ if __name__ == "__main__":
     station_id = args.station
     nr_samples = 2048
     sampling_rate = 3.2
-    channel_ids = np.arange(24)
     test = False
 
 
-    source_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/thermal_noise_traces/complete_sim_traces_set_v0.2_no_system_response_measured_electronic_noise/digitizer_v2"
-    save_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/average_ft/complete_sim_average_ft_set_v0.2_no_system_response_measured_electronic_noise/digitizer_v2"
+#    source_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/thermal_noise_traces/complete_sim_traces_set_v0.2_no_system_response_measured_electronic_noise_new_impedance_mismatch_antenna_v4/digitizer_v2"
+#    save_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/average_ft/complete_sim_average_ft_set_v0.2_no_system_response_measured_electronic_noise_new_impedance_mismatch_antenna_v4/digitizer_v2"
     
+    source_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/thermal_noise_traces/galaxy_model_variation/lfss"
+    save_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/average_ft/galaxy_model_variation/lfss"
+
+#    source_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/thermal_noise_traces/antenna_model_variations/vpol_v3_shift_{args.index}_MHz"
+#    save_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/average_ft/antenna_model_variations/vpol_v3_shift_{args.index}_MHz"
+
+
+
+    config_path = glob.glob(os.path.join(source_dir, f"station{args.station}", "config*.json"))[0]
+    with open(config_path, "r") as file:
+        config = json.load(file)
+
+    channel_ids = config["channels_to_include"]
+
+
     sim_components = [
             glob.glob(f"{source_dir}/station{station_id}/run*/events_ice_batch*.nur"),
             glob.glob(f"{source_dir}/station{station_id}/run*/events_electronic_batch*.nur"),

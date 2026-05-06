@@ -172,7 +172,7 @@ class channelGalacticSunNoiseAdder:
 
         # TEMPORARY SUN TEST VARIABLES
         # -----------------------------------------------------------
-        json_path = "/home/ruben/Documents/projects/RNO-G_noise_study/sim/library/quiet_sun_plotDigitizer.json"
+        json_path = "/user/rcamphyn/noise_study/sim/library/quiet_sun_plotDigitizer.json"
         
         sun_dic = read_quiet_sun_json(json_path)
         sun_interp = scipy.interpolate.interp1d(sun_dic["frequency"], sun_dic["temperature"],
@@ -182,21 +182,20 @@ class channelGalacticSunNoiseAdder:
 
         theta_sun = 60 * units.degree
         phi_sun = 90 * units.degree
-        dtheta_sun = 2544 * 60 * 60 * units.degree
+        dtheta_sun = 2544 / 60 / 60 * units.degree
         ipix = healpy.ang2pix(n_side, theta_sun, phi_sun)
 
         solid_angle_sun = np.abs(2 * np.sin(theta_sun) * np.sin(dtheta_sun/2) * dtheta_sun)
         pixarea = healpy.nside2pixarea(n_side, degrees=False)
         normal_factor = solid_angle_sun / pixarea
+#        normal_factor = solid_angle_sun
         # ------------------------------------------------------------
         # generating sky maps and noise temperatures from chosen sky model in given frequency range
         for i_freq, noise_freq in enumerate(self.__interpolation_frequencies):
             self.__radio_sky = sky_model.generate(noise_freq / units.MHz)
-            print(healpy.pixelfunc.get_nside(self.__radio_sky))
             self.__radio_sky = healpy.pixelfunc.ud_grade(self.__radio_sky, self.__n_side)
             self.__noise_temperatures[i_freq] = self.__radio_sky
-            sun_temp = sun_interp(noise_freq) 
-            # sun_temp = sun_interp(noise_freq) * normal_factor
+            sun_temp = sun_interp(noise_freq) * normal_factor
             self.__noise_temperatures[i_freq][ipix] += sun_temp
 
 
@@ -452,87 +451,181 @@ if __name__ == "__main__":
     from NuRadioReco.detector.detector import Detector
 
 
-    # COORDINATES DONT WORK FIX THIS
+#    def get_local_sun_coordinates(coordinates, time):
+#        site_latitude, site_longitude = coordinates
+#        site_location = astropy.coordinates.EarthLocation(lat=site_latitude * astropy.units.deg,
+#                                                         lon=site_longitude * astropy.units.deg)
+#        local_coordinates = astropy.coordinates.AltAz(location=site_location, obstime=time)
+#        sun = astropy.coordinates.get_sun(time)
+#        local_sun_coordinates = sun.transform_to(local_coordinates)
+#        return local_sun_coordinates.zen.radian, local_sun_coordinates.alt.radian
+#    
+#
+#    json_path = "/home/ruben/Documents/projects/RNO-G_noise_study/sim/library/quiet_sun_plotDigitizer.json"
+#    station_id = 23
+#    time_dt = datetime(2023, 8, 1, 0, 0, 0)
+#    time = astropy.time.Time(time_dt)
+#    n_side = 32
+#
+#    detector = Detector(source="rnog_mongo", select_stations=station_id)
+#    site_latitude, site_longitude = detector.get_site_coordinates(station_id)
+#
+#    npix = healpy.nside2npix(n_side)
+#    sun_map = np.zeros(npix)
+#
+#    time_dts = [datetime(2023, 11, 1, int(h), 0, 0) for h in np.arange(24)]
+#    for time_dt in time_dts:
+#        time = astropy.time.Time(time_dt)
+#        sun_zenith, sun_azi = get_local_sun_coordinates(detector.get_site_coordinates(), time)
+#        sun_pos_pixi = healpy.pixelfunc.ang2pix(n_side, sun_zenith, sun_azi)
+#        sun_map[sun_pos_pixi] += 100
+#
+#
+#    healpy.orthview(sun_map, half_sky=True)
+#    plt.show()
+#    plt.close()
+#
+#    sun_dic = read_quiet_sun_json(json_path)
+#    print(sun_dic["temperature"])
+#
+#    sun_interp = scipy.interpolate.interp1d(sun_dic["frequency"], sun_dic["temperature"],
+#                                            bounds_error=False,
+#                                            fill_value="extrapolate")
+#
+#    freq_range = np.array([10, 1000]) * units.MHz
+#
+#    # define interpolation frequencies. Set in logarithmic range from freq_range[0] to freq_range[1],
+#    # rounded to MHz to avoid import errors from LFmap and tabulated models.
+#    interpolation_frequencies = np.around(np.logspace(*np.log10(freq_range), num=15), 3)
+#
+#    sky_model = GlobalSkyModel(freq_unit="MHz")
+#    noise_temperatures = np.zeros((len(interpolation_frequencies), healpy.pixelfunc.nside2npix(n_side))
+#    )
+#
+#    for i_freq, noise_freq in enumerate(interpolation_frequencies):
+#        radio_sky = sky_model.generate(noise_freq / units.MHz)
+#        radio_sky = healpy.pixelfunc.ud_grade(radio_sky, n_side)
+#        noise_temperatures[i_freq] = radio_sky
+#
+#    freq_idx = 12
+#    print(interpolation_frequencies[freq_idx])
+#    healpy.mollview(noise_temperatures[freq_idx], sub=121)
+#
+#    theta_sun = 0
+#    phi_sun = 30
+#    dtheta_sun = 2544 * 60 * 60 * units.degree
+#    ipix = healpy.ang2pix(n_side, theta_sun, phi_sun)
+#
+#    solid_angle_sun = np.abs(2 * np.sin(theta_sun) * np.sin(dtheta_sun/2) * dtheta_sun)
+#    pixarea = healpy.nside2pixarea(n_side, degrees=False)
+#    normal_factor = solid_angle_sun / pixarea
+#
+#    for i_freq, noise_freq in enumerate(interpolation_frequencies):
+#        # sun_temp = sun_interp(noise_freq) * normal_factor
+#        sun_temp = sun_interp(noise_freq)
+##        sun_temp = 1000000 * normal_factor
+#        noise_temperatures[i_freq][ipix] += sun_temp * normal_factor
+#
+#
+#    healpy.mollview(noise_temperatures[freq_idx], sub=122, title="with sun")
+#    plt.tight_layout()
+#    plt.show()
 
-    def get_local_sun_coordinates(coordinates, time):
-        site_latitude, site_longitude = coordinates
-        site_location = astropy.coordinates.EarthLocation(lat=site_latitude * astropy.units.deg,
-                                                         lon=site_longitude * astropy.units.deg)
-        local_coordinates = astropy.coordinates.AltAz(location=site_location, obstime=time)
-        sun = astropy.coordinates.get_sun(time)
-        local_sun_coordinates = sun.transform_to(local_coordinates)
-        return local_sun_coordinates.zen.radian, local_sun_coordinates.alt.radian
-    
+    import datetime
+    import matplotlib.pyplot as plt
+    from NuRadioReco.detector.RNO_G.rnog_detector_mod import ModDetector
+    from NuRadioReco.framework.event import Event
+    from NuRadioReco.framework.station import Station
+    from NuRadioReco.framework.channel import Channel
 
-    json_path = "/home/ruben/Documents/projects/RNO-G_noise_study/sim/library/quiet_sun_plotDigitizer.json"
-    station_id = 23
-    time_dt = datetime(2023, 8, 1, 0, 0, 0)
-    time = astropy.time.Time(time_dt)
-    n_side = 32
-
-    detector = Detector(source="rnog_mongo", select_stations=station_id)
-    site_latitude, site_longitude = detector.get_site_coordinates(station_id)
-
-    npix = healpy.nside2npix(n_side)
-    sun_map = np.zeros(npix)
-
-    time_dts = [datetime(2023, 11, 1, int(h), 0, 0) for h in np.arange(24)]
-    for time_dt in time_dts:
-        time = astropy.time.Time(time_dt)
-        sun_zenith, sun_azi = get_local_sun_coordinates(detector.get_site_coordinates(), time)
-        sun_pos_pixi = healpy.pixelfunc.ang2pix(n_side, sun_zenith, sun_azi)
-        sun_map[sun_pos_pixi] += 100
+    # SETTINGS
+    station_id = 11
+    nr_samples = 2048
+    sampling_rate = 3.2 * units.GHz
+    frequencies = np.fft.rfftfreq(nr_samples, d=1./sampling_rate)
+    channel_ids = [0, 4, 12, 13]
+    antenna_models = {"VPol" : "RNOG_vpol_v3_5inch_center_IGLU_n1.74",
+                      "HPol" : "RNOG_hpol_v4_8inch_center_IGLU_n1.74"}
+    channel_types = {"VPol" : [0, 1, 2, 3, 5, 6, 7, 9, 10, 22, 23],
+                     "HPol" : [4, 8, 11, 21]}
+    detector_time = datetime.datetime(2023, 8, 1)
 
 
-    healpy.orthview(sun_map, half_sky=True)
-    plt.show()
-    plt.close()
 
-    sun_dic = read_quiet_sun_json(json_path)
-    print(sun_dic["temperature"])
+    detector = ModDetector(database_connection='RNOG_public', log_level=logging.NOTSET,
+                           select_stations=station_id)
+    detector.update(detector_time)
 
-    sun_interp = scipy.interpolate.interp1d(sun_dic["frequency"], sun_dic["temperature"],
-                                            bounds_error=False,
-                                            fill_value="extrapolate")
-
-    freq_range = np.array([10, 1000]) * units.MHz
-
-    # define interpolation frequencies. Set in logarithmic range from freq_range[0] to freq_range[1],
-    # rounded to MHz to avoid import errors from LFmap and tabulated models.
-    interpolation_frequencies = np.around(np.logspace(*np.log10(freq_range), num=15), 3)
-
-    sky_model = GlobalSkyModel(freq_unit="MHz")
-    noise_temperatures = np.zeros((len(interpolation_frequencies), healpy.pixelfunc.nside2npix(n_side))
-    )
-
-    for i_freq, noise_freq in enumerate(interpolation_frequencies):
-        radio_sky = sky_model.generate(noise_freq / units.MHz)
-        radio_sky = healpy.pixelfunc.ud_grade(radio_sky, n_side)
-        noise_temperatures[i_freq] = radio_sky
-
-    freq_idx = 12
-    print(interpolation_frequencies[freq_idx])
-    healpy.mollview(noise_temperatures[freq_idx], sub=121)
-
-    theta_sun = 0
-    phi_sun = 30
-    dtheta_sun = 2544 * 60 * 60 * units.degree
-    ipix = healpy.ang2pix(n_side, theta_sun, phi_sun)
-
-    solid_angle_sun = np.abs(2 * np.sin(theta_sun) * np.sin(dtheta_sun/2) * dtheta_sun)
-    pixarea = healpy.nside2pixarea(n_side, degrees=False)
-    normal_factor = solid_angle_sun / pixarea
-
-    for i_freq, noise_freq in enumerate(interpolation_frequencies):
-        # sun_temp = sun_interp(noise_freq) * normal_factor
-        sun_temp = sun_interp(noise_freq)
-#        sun_temp = 1000000 * normal_factor
-        noise_temperatures[i_freq][ipix] += sun_temp * normal_factor
+    for channel_id in channel_ids:
+        if channel_id in channel_types["VPol"]:
+            antenna_model = antenna_models["VPol"]
+            detector.modify_channel_description(station_id, channel_id, ["signal_chain", "VEL"], antenna_model)
+        if channel_id in channel_types["HPol"]:
+            antenna_model = antenna_models["HPol"]
+            detector.modify_channel_description(station_id, channel_id, ["signal_chain", "VEL"], antenna_model)
 
 
-    healpy.mollview(noise_temperatures[freq_idx], sub=122, title="with sun")
-    plt.tight_layout()
-    plt.show()
+    t0 = datetime.datetime.now()
+    spectra = [[] for ch in channel_ids]
+    nr_it = 100
+    sun_adder = channelGalacticSunNoiseAdder()
+    sun_adder.begin()
+    for i in range(nr_it):
+        event = Event(run_number=-1, event_id=-1)
+        station = Station(station_id)
+        station.set_station_time(detector.get_detector_time())
+        for channel_id in channel_ids:
+            channel = Channel(channel_id)
+            channel.set_frequency_spectrum(np.zeros_like(frequencies, dtype=np.complex128), sampling_rate)
+            station.add_channel(channel)
+        event.set_station(station)
 
-    # sun_adder = channelGalacticSunNoiseAdder()
-    # sun_adder.begin()
+        sun_adder.run(event, station, detector)
+
+        station = event.get_station()
+        for i, channel_id in enumerate(channel_ids):
+            channel = station.get_channel(channel_id)
+            spectra[i].append(np.abs(channel.get_frequency_spectrum()))
+    t1 = datetime.datetime.now()
+    print(f"took {t1 - t0} to run {nr_it} iterations")
+
+
+
+    # NO SUN
+    from NuRadioReco.modules.channelGalacticNoiseAdder import channelGalacticNoiseAdder
+    t0 = datetime.datetime.now()
+    spectra_no_sun = [[] for ch in channel_ids]
+    nr_it = 100
+    galactic_adder = channelGalacticNoiseAdder()
+    galactic_adder.begin()
+    for i in range(nr_it):
+        event = Event(run_number=-1, event_id=-1)
+        station = Station(station_id)
+        station.set_station_time(detector.get_detector_time())
+        for channel_id in channel_ids:
+            channel = Channel(channel_id)
+            channel.set_frequency_spectrum(np.zeros_like(frequencies, dtype=np.complex128), sampling_rate)
+            station.add_channel(channel)
+        event.set_station(station)
+
+        galactic_adder.run(event, station, detector)
+
+        station = event.get_station()
+        for i, channel_id in enumerate(channel_ids):
+            channel = station.get_channel(channel_id)
+            spectra_no_sun[i].append(np.abs(channel.get_frequency_spectrum()))
+    t1 = datetime.datetime.now()
+    print(f"took {t1 - t0} to run {nr_it} iterations")
+
+
+
+    plt.style.use("retro")
+    from matplotlib.backends.backend_pdf import PdfPages
+    pdf = PdfPages("figures/tests/test_galactic_noise_sun.pdf")
+    for i, channel_id in enumerate(channel_ids):
+        plt.plot(channel.get_frequencies(), np.mean(spectra[i], axis=0), label="sun")
+        plt.plot(channel.get_frequencies(), np.mean(spectra_no_sun[i], axis=0), label="no sun")
+        plt.legend()
+        plt.savefig(pdf, format="pdf")
+        plt.close()
+    pdf.close()
