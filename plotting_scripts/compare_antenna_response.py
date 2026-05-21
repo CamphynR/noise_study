@@ -6,7 +6,6 @@ import matplotlib.cm as cm
 import matplotlib.colors as mcolors
 from matplotlib.ticker import FuncFormatter
 import matplotlib.pyplot as plt
-from matplotlib.patches import Arrow
 import numpy as np
 from NuRadioReco.detector import antennapattern
 from NuRadioReco.detector.antennapattern import AntennaPatternProvider
@@ -87,7 +86,7 @@ def get_sampled_VEL(antenna_model, channel=0, interpolation_method="complex",
     if channel in channel_mapping["VPol"]:
         zenith_max = 90 * units.degree
 #        zenith_max = 1.57079633
-        freqs = np.linspace(0 * units.MHz, 1000 * units.MHz, 500)
+        freqs = np.linspace(0 * units.MHz, 1000 * units.MHz, 1000)
         pol = "theta"
     elif channel in channel_mapping["HPol"]:
         zenith_max = 90 * units.degree
@@ -151,8 +150,8 @@ if __name__ == "__main__":
         zenith_max_idx_list = []
         VEL_models = []
         for antenna_model in args.antenna_models:
-            if antenna_model.startswith("vpol_effective"):
-                interpolation_method = "magphase"
+            if antenna_model.startswith("RNOG_vpol_v4"):
+                interpolation_method = "complex"
             else:
                 interpolation_method = "complex"
             zenith_max_idx, freqs, VEL = get_sampled_VEL(antenna_model, args.channel,
