@@ -31,6 +31,8 @@ def combine_times(begin_time1, end_time1, begin_time2, end_time2):
 
 # THIS IS PROBABLY INCORRECT since we use the mean of the squares
 def combine_vars(var1, var2, mean1, mean2, nr_events_1, nr_events_2):
+    if np.any(np.isnan(var2)):
+        print(var2[0][200:400])
     weighted_sum = (nr_events_1 - 1) * var1 + (nr_events_2 * var2)
     correction_factor = nr_events_1 * nr_events_2 * (mean1 - mean2)**2
 
@@ -46,9 +48,15 @@ if __name__ == "__main__":
     for i, pickle in enumerate(args.pickles[1:]):
         frequencies, frequency_spectrum, var_frequency_spectrum, nr_events, header = read_freq_spec_file(pickle)
         assert np.equal(frequencies.all(), frequencies_prev.all()), f"frequencies of {i}'th file are not equal to {i}-1th frequencies"
+
         var_frequency_spectrum_prev = combine_vars(var_frequency_spectrum_prev, var_frequency_spectrum,
                                               frequency_spectrum_prev, frequency_spectrum,
                                               nr_events_prev, nr_events)
+        if np.any(np.isnan(var_frequency_spectrum_prev)):
+            print(pickle)
+            print("GOT A NAN")
+            exit()
+
         frequency_spectrum_prev = combine_mean(frequency_spectrum_prev, frequency_spectrum,
                                               nr_events_prev, nr_events)
         begin_time_prev, end_time_prev = combine_times(begin_time_prev, end_time_prev, header["begin_time"], header["end_time"])
