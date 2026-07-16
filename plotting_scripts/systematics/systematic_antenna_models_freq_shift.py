@@ -40,6 +40,7 @@ if __name__ == "__main__":
     fit_evaluation_range = [0.1, 0.7]
 
     use_relative_difference = True
+    gain_in_dB = False
 
 
     broken_channels_path = "configs/known_broken_channels.json"
@@ -48,45 +49,122 @@ if __name__ == "__main__":
 
 
     
-    calibration_dir = f"absolute_amplitude_results/season{season}"
+#    calibration_dir = f"absolute_amplitude_results/season{season}"
 
+#    calibration = []
+#    data = []
+#    for station_id in station_ids:
+#        calibration_st = {}
+#        data_st = {}
+#        calibration_dir_tmp = os.path.join(calibration_dir,
+#                                           f"station{station_id}",
+#                                           f"default")
+#        calibration_path = os.path.join(calibration_dir_tmp,
+#                                        f"absolute_amplitude_calibration_season{season}_st{station_id}_best_fit.csv")
+#        calibration_tmp = pd.read_csv(calibration_path)
+#        calibration_st["best_fit"] = calibration_tmp
+#
+#        data_path = os.path.join(calibration_dir_tmp,
+#                                 f"absolute_amplitude_calibration_season{season}_st{station_id}_plot_data.pickle")
+#        data_tmp = read_pickle(data_path)
+#        data_st["best_fit"] = data_tmp
+#        
+#
+#
+#        for shift in shifts:
+#            calibration_dir_tmp = os.path.join(calibration_dir,
+#                                               f"station{station_id}",
+#                                               f"antenna_model_v4_shift_{shift}MHz")
+#            calibration_path = os.path.join(calibration_dir_tmp,
+#                                            f"absolute_amplitude_calibration_season{season}_st{station_id}_antenna_model_v4_shift_{shift}MHz_best_fit.csv")
+#            calibration_tmp = pd.read_csv(calibration_path)
+#            calibration_st[f"shift_{shift}"] = calibration_tmp
+#                
+#            data_path = os.path.join(calibration_dir_tmp,
+#                                     f"absolute_amplitude_calibration_season{season}_st{station_id}_antenna_model_v4_shift_{shift}MHz_plot_data.pickle")
+#            data_tmp = read_pickle(data_path)
+#            data_st[f"shift_{shift}"] = data_tmp
+#                    
+#        calibration.append(calibration_st)
+#        data.append(data_st)
+
+    calibration_dir = f"/user/rcamphyn/noise_study/absolute_amplitude_results/season{season}"
     calibration = []
     data = []
+    settings_have_been_read = False
     for station_id in station_ids:
         calibration_st = {}
+        calibration_st["best_fit"] = {}
         data_st = {}
-        calibration_dir_tmp = os.path.join(calibration_dir,
-                                           f"station{station_id}",
-                                           f"default")
-        calibration_path = os.path.join(calibration_dir_tmp,
-                                        f"absolute_amplitude_calibration_season{season}_st{station_id}_best_fit.csv")
-        calibration_tmp = pd.read_csv(calibration_path)
-        calibration_st["best_fit"] = calibration_tmp
 
-        data_path = os.path.join(calibration_dir_tmp,
+        calibration_base = os.path.join(calibration_dir,
+                                        f"station{station_id}",
+                                        f"default")
+        calibration_path = os.path.join(calibration_base,
+                                        f"absolute_amplitude_calibration_season{season}_st{station_id}_best_fit.csv")
+
+        calibration_tmp = pd.read_csv(calibration_path, index_col=0)
+        # this will always include all 24 channels
+        gain = calibration_tmp["gain"].to_numpy()
+        if gain_in_dB:
+            gain = convert_to_db(gain)
+        calibration_st["best_fit"]["gain"] = gain
+        # we want to compare within the best fit template to isolate only the effect of the antenna
+        best_fit_template_keys = calibration_tmp["best_fit_template"]
+        calibration_st["best_fit"]["best_fit_template"] = best_fit_template_keys
+
+        data_path = os.path.join(calibration_base,
                                  f"absolute_amplitude_calibration_season{season}_st{station_id}_plot_data.pickle")
-        data_tmp = read_pickle(data_path)
-        data_st["best_fit"] = data_tmp
-        
+        with open(data_path, "rb") as file:
+            data_tmp = pickle.load(file)
+        data_st["best_fit"] = {}
+        data_st["best_fit"]["frequencies"] = data_tmp["frequencies"]
+        data_st["best_fit"]["data"] = data_tmp["data"]
+        data_st["best_fit"]["sim"] = data_tmp["sim"]
 
 
         for shift in shifts:
-            calibration_dir_tmp = os.path.join(calibration_dir,
-                                               f"station{station_id}",
-                                               f"antenna_model_vpol_v3_shift_{shift}_MHz")
-            calibration_path = os.path.join(calibration_dir_tmp,
-                                            f"absolute_amplitude_calibration_season{season}_st{station_id}_antenna_model_vpol_v3_shift_{shift}_MHz_best_fit.csv")
-            calibration_tmp = pd.read_csv(calibration_path)
-            calibration_st[f"shift_{shift}"] = calibration_tmp
-                
-            data_path = os.path.join(calibration_dir_tmp,
-                                     f"absolute_amplitude_calibration_season{season}_st{station_id}_antenna_model_vpol_v3_shift_{shift}_MHz_plot_data.pickle")
-            data_tmp = read_pickle(data_path)
-            data_st[f"shift_{shift}"] = data_tmp
-                    
+            calibration_st[f"{shift}"] = {}
+            calibration_base = os.path.join(calibration_dir,
+                                            f"station{station_id}",
+                                            f"antenna_model_v4_shift_{shift}MHz")
+
+
+            if not settings_have_been_read:
+                with open(os.path.join(calibration_base, "fit_settings.json"), "r") as file:
+                    fit_settings = json.load(file)
+                settings_have_been_read = True
+
+
+            data_path = os.path.join(calibration_base,
+                                     f"absolute_amplitude_calibration_season{season}_st{station_id}_antenna_model_v4_shift_{shift}MHz_plot_data_all_templates.pickle")
+            with open(data_path, "rb") as file:
+                data_tmp_all_templates = pickle.load(file)
+            data_st[f"{shift}"] = {}
+            data_st[f"{shift}"]["frequencies"] = data_tmp_all_templates["frequencies"]
+            data_st[f"{shift}"]["data"] = list(data_tmp_all_templates["data"].values())[0]
+
+
+            calibration_tmp = []
+            data_tmp = {}
+            for ch_idx, channel_id in enumerate(fit_settings["channels_to_include"]):
+                template_key = best_fit_template_keys[channel_id]
+                calibration_path = os.path.join(calibration_base,
+                                                f"absolute_amplitude_calibration_season{season}_st{station_id}_antenna_model_v4_shift_{shift}MHz_key{template_key}.csv")
+                gain_channel = pd.read_csv(calibration_path, index_col=0)["gain"][channel_id]
+                if gain_in_dB:
+                    gain_channel = convert_to_db(gain_channel)
+                calibration_tmp.append(gain_channel) 
+
+                data_tmp[channel_id] = np.array(data_tmp_all_templates["sim"][template_key][ch_idx])
+
+            calibration_st[f"{shift}"]["gain"] = calibration_tmp
+            data_st[f"{shift}"]["sim"] = data_tmp
+
+        
+
         calibration.append(calibration_st)
         data.append(data_st)
-
 
 
 
@@ -95,7 +173,7 @@ if __name__ == "__main__":
         fig, ax = plt.subplots()
         ax.scatter(channel_ids, calibration[station_idx]["best_fit"]["gain"], label="default")
         for shift in shifts:
-            ax.scatter(channel_ids, calibration[station_idx][f"shift_{shift}"]["gain"], label=f"{shift} MHz shift")
+            ax.scatter(channel_ids, calibration[station_idx][f"{shift}"]["gain"], label=f"{shift} MHz shift")
         ax.set_xticks(channel_ids)    
         ax.legend()
         fig.savefig(f"figures/antenna_tests/gain_scatter_plot_antenna_model_freq_shift_season{season}_st_{station_id}")
@@ -120,9 +198,9 @@ if __name__ == "__main__":
                     )
             for shift in shifts:
                 ax.plot(
-                        data[station_idx][f"shift_{shift}"]["frequencies"],
-                        data[station_idx][f"shift_{shift}"]["sim"][channel_id],
-                        label = f"shift {shift} MHz (G = {convert_to_db(calibration[station_idx][f'shift_{shift}']['gain'][channel_id]):.2f} dB,\n{calibration[station_idx][f'shift_{shift}']['best_fit_template'][channel_id]})"
+                        data[station_idx][f"{shift}"]["frequencies"],
+                        data[station_idx][f"{shift}"]["sim"][channel_id],
+                        label = f"shift {shift} MHz (G = {convert_to_db(calibration[station_idx][f'{shift}']['gain'][channel_id]):.2f} dB"
                         )
             ax.set_xlabel("frequencies / GHz")
             ax.set_ylabel("Amplitude / V")
@@ -165,10 +243,12 @@ if __name__ == "__main__":
     antenna_type_groups = {"deep_vpols" : [0, 1, 2, 3, 9, 10, 22, 23], "shallow_vpols" : [5, 6, 7]}
 
 
-    shifts = [f"shift_{shift}" for shift in copy.copy(shifts)]
+    shifts = [f"{shift}" for shift in copy.copy(shifts)]
     
     fig, axs = plt.subplots(len(antenna_type_groups), 1)
     axs = np.ndarray.flatten(axs)
+    dG_all_antenna = []
+    gof_all_antenna = []
     for ax_i, (antenna_type_group, channel_ids) in enumerate(antenna_type_groups.items()):
         dG = []
         gof = {}
@@ -235,6 +315,10 @@ if __name__ == "__main__":
         axs[ax_i].set_xlabel(xlabel)
 
         axs[ax_i].set_ylabel("N")
+
+
+        dG_all_antenna.append(dG)
+        gof_all_antenna.append(gof)
         
     fig.tight_layout()
     fig.savefig(f"figures/antenna_tests/antenna_shift_effect_season{season}.png")
@@ -243,9 +327,10 @@ if __name__ == "__main__":
     fig, axs = plt.subplots(len(antenna_type_groups), 1)
     axs = np.ndarray.flatten(axs)
     for ax_i, (antenna_type_group, channel_ids) in enumerate(antenna_type_groups.items()):
-        _, bin_edges = np.histogram(ak.ravel(ak.Array(gof.values())), bins=20)
+        gof_tmp = gof_all_antenna[ax_i]
+        _, bin_edges = np.histogram(ak.ravel(ak.Array(gof_tmp.values())), bins=20)
         for shift_i, shift in enumerate(shifts):
-            axs[ax_i].hist(ak.ravel(ak.Array(gof[shift])),
+            axs[ax_i].hist(ak.ravel(ak.Array(gof_tmp[shift])),
                            bins=bin_edges,
                            histtype="stepfilled",
                            label=f"shift = {shift} 50 MHz",

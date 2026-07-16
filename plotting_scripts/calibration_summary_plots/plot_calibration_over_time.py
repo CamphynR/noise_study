@@ -103,7 +103,7 @@ if __name__ == "__main__":
         ax.set_ylabel("Gain / dB")
         ax.tick_params("x", rotation=30)
         ax.set_title(f"Channel {channel_id}")
-        fig.savefig(pdf, format="pdf")
+        fig.savefig(pdf, format="pdf", bbox_inches="tight")
         plt.close(fig)
 
 
@@ -149,16 +149,18 @@ if __name__ == "__main__":
 
     pdf_path = f"figures/calibration_summaries/dG_per_run_season{season}_st{station_id}.pdf"
     pdf = PdfPages(pdf_path)
-    fig, ax = plt.subplots()
     for channel_id in channel_ids:
+        fig, ax = plt.subplots()
         if channel_id in known_broken_channels[season][station_id]:
             continue
         ax.scatter(run_times, dG[channel_id] * 100)
-    ax.set_xlabel("run time")
-    ax.tick_params("x", rotation=30)
-    ax.set_ylabel("dG / %")
-    fig.tight_layout()
-    fig.savefig(pdf, format="pdf")
+        ax.set_title(f"channel {channel_id}")
+        ax.set_xlabel("run time")
+        ax.tick_params("x", rotation=30)
+        ax.set_ylabel("dG / %")
+        fig.tight_layout()
+        fig.savefig(pdf, format="pdf", bbox_inches="tight")
+        plt.close(fig)
     pdf.close()
 
 
@@ -166,17 +168,19 @@ if __name__ == "__main__":
     
     pdf_path = f"figures/calibration_summaries/dG_hist_season{season}_st{station_id}.pdf"
     pdf = PdfPages(pdf_path)
-    fig, ax = plt.subplots()
-    dG_trimmed = []
     for channel_id in channel_ids:
+        fig, ax = plt.subplots()
         if channel_id in known_broken_channels[season][station_id]:
             continue
-        dG_trimmed.extend(dG[channel_id])
-    ax.hist(dG_trimmed * 100, histtype="stepfilled",
-            facecolor=colors_face[0],
-            edgecolor=colors_edge[0])
-    ax.set_xlabel("dG / %")
-    ax.set_ylabel("N")
-    fig.tight_layout()
-    fig.savefig(pdf, format="pdf")
+        ax.hist(dG[channel_id]*100,
+                histtype="stepfilled",
+                facecolor=colors_face[0],
+                edgecolor=colors_edge[0],
+                lw=3.)
+        ax.set_yscale("log")
+        ax.set_xlabel("dG / %")
+        ax.set_ylabel("N")
+        fig.tight_layout()
+        fig.savefig(pdf, format="pdf", bbox_inches="tight")
+        plt.close(fig)
     pdf.close()

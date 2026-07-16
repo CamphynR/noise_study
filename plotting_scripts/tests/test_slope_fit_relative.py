@@ -25,26 +25,15 @@ def plot_dG_histogram(run_times_all_flattened, dG_all_flattened,
                       fname_appendix=None
                       ):
 
-
+    fig, (ax_left, ax_middle, ax_right) = plt.subplots(1, 3, sharey=True, facecolor="white")
+    plt.subplots_adjust(wspace=0.1, bottom=0.25, top=0.95, right=0.83)
 
     ax_left_xlim = [np.datetime64("2022-07-01T00:00:00").astype("datetime64[ns]").astype("float64"),
                     np.datetime64("2022-09-01T00:00:00").astype("datetime64[ns]").astype("float64")]
-    ax_middle_xlim = [np.datetime64("2023-03-28T00:00:00").astype("datetime64[ns]").astype("float64"),
-                      np.datetime64("2023-10-30T00:00:00").astype("datetime64[ns]").astype("float64")]
+    ax_middle_xlim = [np.datetime64("2023-02-20T00:00:00").astype("datetime64[ns]").astype("float64"),
+                      np.datetime64("2023-12-31T00:00:00").astype("datetime64[ns]").astype("float64")]
     ax_right_xlim = [np.datetime64("2024-04-01T00:00:00").astype("datetime64[ns]").astype("float64"),
                      np.datetime64("2024-08-01T00:00:00").astype("datetime64[ns]").astype("float64"),]
-
-
-    size_ax_left = np.diff(ax_left_xlim)[0]
-    size_ax_middle = np.diff(ax_middle_xlim)[0]
-    size_ax_right = np.diff(ax_right_xlim)[0]
-
-
-
-    fig, (ax_left, ax_middle, ax_right) = plt.subplots(1, 3, sharey=True, facecolor="white",
-                                                       width_ratios=[size_ax_left, size_ax_middle, size_ax_right],
-                                                       figsize=(12, 6))
-    plt.subplots_adjust(wspace=0.1, bottom=0.25, top=0.95, right=0.83)
 
 
     gain_bins = np.arange(gain_lim[0], gain_lim[1] + gain_bin_width, gain_bin_width)
@@ -71,7 +60,6 @@ def plot_dG_histogram(run_times_all_flattened, dG_all_flattened,
             dG_all_flattened[dG_idx] = gain_bins[0] / 100
 
 
-    plt.locator_params(axis="x", nbins=2)
     ax_left.hist2d(np.array(run_times_all_flattened).astype("float64"),
                    np.array(dG_all_flattened) * 100,
                    bins=(ax_left_bins, gain_bins),
@@ -79,14 +67,12 @@ def plot_dG_histogram(run_times_all_flattened, dG_all_flattened,
                    cmin=cmin,
                    vmin=vmin,
                    density=density)
-    plt.locator_params(axis="x", nbins=6)
     ax_middle.hist2d(np.array(run_times_all_flattened).astype("float64"), np.array(dG_all_flattened) * 100,
                      bins=(ax_middle_bins, gain_bins),
                    cmap=cmap,
                    cmin=cmin,
                      vmin=vmin,
                      density=density)
-    plt.locator_params(axis="x", nbins=2)
     hist, x_bin, y_bin, img= ax_right.hist2d(np.array(run_times_all_flattened).astype("float64"), np.array(dG_all_flattened) * 100,
                     bins=(ax_right_bins, gain_bins),
                    cmap=cmap,
@@ -153,18 +139,8 @@ def plot_dG_histogram(run_times_all_flattened, dG_all_flattened,
     formatter = FuncFormatter(lambda x, tick_pos: x.astype("datetime64[ns]").astype("datetime64[D]"))
     for ax in [ax_left, ax_middle, ax_right]:
         ax.xaxis.set_major_formatter(formatter)
-
-        ax.tick_params(axis="x", rotation=-35)
-        for label in ax.get_xticklabels():
-            label.set_horizontalalignment("left")
-#    ax_left.set_xticks(ax.get_xticks()[1:-1])
-#    ax_left.set_xticklabels(ax.get_xticklabels(), rotation=-35, ha="left")
-#
-#    ax_middle.set_xticks(ax.get_xticks()[1:-1])
-#    ax_middle.set_xticklabels(ax.get_xticklabels(), rotation=-35, ha="left")
-#
-#    ax_right.set_xticks(ax.get_xticks()[1:-1])
-#    ax_right.set_xticklabels(ax.get_xticklabels(), rotation=-35, ha="left")
+        ax.set_xticks(ax.get_xticks()[1:-1])
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=-35, ha="left")
     
 
     cbar = plt.colorbar(img, ax=ax_right)
@@ -184,7 +160,7 @@ def plot_dG_histogram(run_times_all_flattened, dG_all_flattened,
     figname += ".png"
     print(figname)
     try:
-        fig.savefig(figname, dpi=300, bbox_inches="tight")
+        fig.savefig(figname, dpi=150)
     except ValueError:
         print(dG_all_flattened)
         print(hist)
@@ -230,7 +206,8 @@ def construct_baseline(baseline_type,
                 if station_id in [21, 22] and season=="2024_radiant_v2":
                     continue
 
-                baseline_calibration_path=f"absolute_amplitude_results/season{season}/station{station_id}/default/absolute_amplitude_calibration_season{season}_st{station_id}_best_fit.csv"
+                print("YOU ARE USING DEFAULT NO PULSER DO NOT FORGET")
+                baseline_calibration_path=f"absolute_amplitude_results/season{season}/station{station_id}/default_no_pulser_removed/absolute_amplitude_calibration_season{season}_st{station_id}_best_fit.csv"
                 baseline_calibration = pd.read_csv(baseline_calibration_path,
                                                   index_col=0)
                 baseline[season][station_id] = baseline_calibration["gain"]
@@ -239,7 +216,8 @@ def construct_baseline(baseline_type,
         season = baseline_type
         baseline[season] = {}
         for station_id in station_ids:
-            baseline_calibration_path=f"absolute_amplitude_results/season{season}/station{station_id}/default/absolute_amplitude_calibration_season{season}_st{station_id}_best_fit.csv"
+            print("YOU ARE USING DEFAULT NO PULSER DO NOT FORGET")
+            baseline_calibration_path=f"absolute_amplitude_results/season{season}/station{station_id}/default_no_pulser_removed/absolute_amplitude_calibration_season{season}_st{station_id}_best_fit.csv"
             baseline_calibration = pd.read_csv(baseline_calibration_path,
                                               index_col=0)
             baseline[season][station_id] = baseline_calibration["gain"]
@@ -304,9 +282,8 @@ if __name__ == "__main__":
             station_ids.append(station_id)
 
     # manualy selecting to avoid station 22, temp
-    station_ids = [11, 12, 13, 21, 23, 24]
+    # station_ids = [11, 12, 13, 21, 22, 23, 24]
 #    station_ids = [13]
-
 
 
     run_times_all = {season_tmp : {} for season_tmp in seasons}
@@ -339,7 +316,6 @@ if __name__ == "__main__":
 
         if int(station_id) not in station_ids:
             continue
-        
 
 
         channel_ids = np.arange(24)

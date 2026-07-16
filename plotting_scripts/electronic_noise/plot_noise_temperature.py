@@ -7,6 +7,9 @@ from NuRadioReco.modules.channelBandPassFilter import channelBandPassFilter
 from NuRadioReco.utilities import constants, units
 
 
+from modules.cableResponse import cableResponse
+
+
 
 
 if __name__ == "__main__":
@@ -20,7 +23,7 @@ if __name__ == "__main__":
     new_files = [
             "Deep_calibrated_noisetemp_-40C.csv", "Deep_calibrated_noisetemp_20C.csv",
             "Old_DRAB_calibrated_noisetemp_-40C.csv", "Old_DRAB_calibrated_noisetemp_20C.csv",
-            "Old_Surf_calibrated_noisetemp_-40C.csv", "Old_Surf_calibrated_noisetemp_0C.csv", "Old_Surf_calibrated_noisetemp_20C.csv",
+            "Old_Surf_calibrated_noisetemp_-10C.csv", "Old_Surf_calibrated_noisetemp_0C.csv", "Old_Surf_calibrated_noisetemp_20C.csv",
             "Surface_calibrated_noisetemp_-40C.csv", "Surface_calibrated_noisetemp_20C.csv"
                  ]
     new_paths = [os.path.join(new_dir, filename) for filename in new_files]
@@ -87,3 +90,98 @@ if __name__ == "__main__":
     plt.clf()
     plt.plot(freqs, 700*spectrum)
     plt.savefig("test_psd_from_noise")
+
+    ds_deep = pd.read_csv(new_paths[2], names=["freq", "noise_temp"], header=None, index_col=False, skipinitialspace=True)
+    ds_deep["freq"] = ds_deep["freq"] * units.MHz
+
+    ds_deep_20C = pd.read_csv(new_paths[3], names=["freq", "noise_temp"], header=None, index_col=False, skipinitialspace=True)
+    ds_deep_20C["freq"] = ds_deep_20C["freq"] * units.MHz
+
+    ds_surface_min10C = pd.read_csv(new_paths[4], names=["freq", "noise_temp"], header=None, index_col=False, skipinitialspace=True)
+    ds_surface_min10C["freq"] = ds_surface_min10C["freq"] * units.MHz
+
+    ds_surface_0C = pd.read_csv(new_paths[5], names=["freq", "noise_temp"], header=None, index_col=False, skipinitialspace=True)
+    ds_surface_0C["freq"] = ds_surface_0C["freq"] * units.MHz
+
+
+    ds_surface_20C = pd.read_csv(new_paths[6], names=["freq", "noise_temp"], header=None, index_col=False, skipinitialspace=True)
+    ds_surface_20C["freq"] = ds_surface_20C["freq"] * units.MHz
+
+    surface_no_cable_path = "electronic_noise_measurements/new_no_cable/Old_Surf_no_cable_0C.csv"
+    ds_surface_no_cable = pd.read_csv(surface_no_cable_path, names=["freq", "noise_temp"], header=None, index_col=False, skipinitialspace=True)
+    ds_surface_no_cable["freq"] = ds_surface_no_cable["freq"] * units.MHz
+
+
+
+    surface_no_cable_path_20C = "electronic_noise_measurements/new_no_cable/Old_Surf_no_cable_20C.csv"
+    ds_surface_no_cable_20C = pd.read_csv(surface_no_cable_path_20C, names=["freq", "noise_temp"], header=None, index_col=False, skipinitialspace=True)
+    ds_surface_no_cable_20C["freq"] = ds_surface_no_cable_20C["freq"] * units.MHz
+
+    mask_surf = (min_freq < ds_surface_no_cable["freq"]) & (ds_surface_no_cable["freq"] < max_freq)
+
+    cable = cableResponse(length=11)
+#    cable = cable.get_gain()
+
+    plt.style.use("astroparticle_physics")
+    ls_deep = "solid"
+    ls_surface = "dashed"
+    fig, ax = plt.subplots()
+#    ax.plot(ds_deep_20C["freq"][mask],
+#            ds_deep_20C["noise_temp"][mask],
+#            label="Downhole (20 C)",
+#            ls=ls_deep,
+#            lw=1.5)
+
+    ax.plot(ds_deep["freq"][mask],
+            ds_deep["noise_temp"][mask],
+            label="Downhole (-40 C)",
+            ls=ls_deep,
+            lw=3.)
+
+    # SURFACE with cable
+#    ax.plot(ds_surface_min10C["freq"][mask],
+#            ds_surface_min10C["noise_temp"][mask],
+#            label="Surface (-10 C)",
+#            ls=ls_surface,
+#            lw=1.5)
+#
+    ax.plot(ds_surface_0C["freq"][mask],
+            ds_surface_0C["noise_temp"][mask],
+            label="Surface (0 C)",
+            ls=ls_surface,
+            lw=3.)
+
+    ax.plot(ds_surface_20C["freq"][mask],
+            ds_surface_20C["noise_temp"][mask],
+            label="Surface (20 C)",
+            ls=ls_surface,
+            lw=1.5)
+
+#    ax.plot(ds_surface["freq"][mask],
+#            ds_surface["noise_temp"][mask] / cable(ds_surface["freq"][mask]),
+#            label="Surface measured with cable,\ncable response divided out")
+#
+
+    # cable removed by Nath in software in the lab (subtracted in dB)
+#    ax.plot(ds_surface_no_cable["freq"][mask_surf],
+#            ds_surface_no_cable["noise_temp"][mask_surf],
+#            label="Surface (0 C)",
+#            lw=1.5)
+    fit_range = [0.15, 0.6]
+    ax.axvspan(0, fit_range[0],
+                alpha=0.2,
+               color="gray",
+               linestyle="dashed")
+    ax.axvspan(fit_range[1], 1.6,
+               alpha=0.2,
+               color="gray",
+               linestyle="dashed")
+
+
+    ax.legend(loc="upper left")
+    ax.set_xlim(0, 0.8)
+#    ax.set_ylim(60,180)
+    ax.set_xlabel("freq / GHz")
+    ax.set_ylabel("Noise temperature / K")
+    fig.tight_layout()
+    fig.savefig("figures/electronic_noise_measurements/noise_temp_measurements.png", dpi=150)

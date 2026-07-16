@@ -7,7 +7,6 @@ import numpy as np
 import os
 import pandas as pd
 import pickle
-from scipy.optimize import curve_fit
 
 
 from NuRadioReco.utilities import units
@@ -35,16 +34,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     station_ids = args.station
-    indices_of_refraction = [0, 1, 2, 3, 4, 5, 6, 7, 8]
 
     broken_channels_path = "configs/known_broken_channels.json"
     with open(broken_channels_path, "r") as file:
         known_broken_channels = json.load(file)
 
-
-    antenna_max_path = "sim/library/antenna_models_max.json"
-    with open(antenna_max_path, "r") as file:
-        antenna_models_max = json.load(file)
 
     fit_evaluation = integral_difference
     fit_evaluation_range = [0.15, 0.6]
@@ -56,35 +50,15 @@ if __name__ == "__main__":
     calibration = []
     data = []
     settings_have_been_read = False
-
-    default_n = {}
     for station_id in station_ids:
         calibration_st = {}
         data_st = {}
-
 
         calibration_base = os.path.join(calibration_dir,
                                         f"station{station_id}",
                                         f"default")
         calibration_path = os.path.join(calibration_base,
                                         f"absolute_amplitude_calibration_season{args.season}_st{station_id}_best_fit.csv")
-
-
-        with open(os.path.join(calibration_base, "fit_settings.json"), "r") as file:
-            fit_settings_default = json.load(file)
-        sim_path_ice_default = fit_settings_default["sim_paths"][0]
-        config_path_ice_default = sim_path_ice_default.rsplit("/", 2)[-3]
-        config_path_ice_default = os.path.join(config_path_ice_default, "config.json")
-        with open(config_path_ice_default, "r") as file:
-            config_sim_default = json.load(file)
-
-        default_n[station_id] = {}
-        for channel_type, channel_ids in config_sim_default["channel_types"].items():
-            for channel_id in channel_ids:
-                n_tmp = config_sim_default["antenna_models"][channel_type]
-                n_tmp = n_tmp.rsplit("_")[-1].split("n")[1]
-                n_tmp = float(n_tmp)
-                default_n[station_id][channel_id] = n_tmp
 
         calibration_tmp = pd.read_csv(calibration_path, index_col=0)
         # this will always include all 24 channels
@@ -105,42 +79,41 @@ if __name__ == "__main__":
         data_st["best_fit"]["sim"] = data_tmp["sim"]
 
 
-        for n in indices_of_refraction:
-            calibration_base = os.path.join(calibration_dir,
-                                            f"station{station_id}",
-                                            f"antenna_model_vpol_v4_n1.{n}0")
+        calibration_base = os.path.join(calibration_dir,
+                                        f"station{station_id}",
+                                        f"antenna_model_v4_with_impedance")
 
 
-            if not settings_have_been_read:
-                with open(os.path.join(calibration_base, "fit_settings.json"), "r") as file:
-                    fit_settings = json.load(file)
-                settings_have_been_read = True
+        if not settings_have_been_read:
+            with open(os.path.join(calibration_base, "fit_settings.json"), "r") as file:
+                fit_settings = json.load(file)
+            settings_have_been_read = True
 
 
-            data_path = os.path.join(calibration_base,
-                                     f"absolute_amplitude_calibration_season{args.season}_st{station_id}_antenna_model_vpol_v4_n1.{n}0_plot_data_all_templates.pickle")
-            with open(data_path, "rb") as file:
-                data_tmp_all_templates = pickle.load(file)
-            data_st[n] = {}
-            data_st[n]["frequencies"] = data_tmp_all_templates["frequencies"]
-            data_st[n]["data"] = list(data_tmp_all_templates["data"].values())[0]
+        data_path = os.path.join(calibration_base,
+                                 f"absolute_amplitude_calibration_season{args.season}_st{station_id}_antenna_model_v4_with_impedance_plot_data_all_templates.pickle")
+        with open(data_path, "rb") as file:
+            data_tmp_all_templates = pickle.load(file)
+        data_st["impedance"] = {}
+        data_st["impedance"]["frequencies"] = data_tmp_all_templates["frequencies"]
+        data_st["impedance"]["data"] = list(data_tmp_all_templates["data"].values())[0]
 
 
-            calibration_tmp = {}
-            data_tmp = {}
-            for ch_idx, channel_id in enumerate(fit_settings["channels_to_include"]):
-                template_key = best_fit_template_keys[channel_id]
-                calibration_path = os.path.join(calibration_base,
-                                                f"absolute_amplitude_calibration_season{args.season}_st{station_id}_antenna_model_vpol_v4_n1.{n}0_key{template_key}.csv")
-                gain_channel = pd.read_csv(calibration_path, index_col=0)["gain"][channel_id]
-                if gain_in_dB:
-                    gain_channel = convert_to_db(gain_channel)
-                calibration_tmp[channel_id] = gain_channel 
+        calibration_tmp = {}
+        data_tmp = {}
+        for ch_idx, channel_id in enumerate(fit_settings["channels_to_include"]):
+            template_key = best_fit_template_keys[channel_id]
+            calibration_path = os.path.join(calibration_base,
+                                            f"absolute_amplitude_calibration_season{args.season}_st{station_id}_antenna_model_v4_with_impedance_key{template_key}.csv")
+            gain_channel = pd.read_csv(calibration_path, index_col=0)["gain"][channel_id]
+            if gain_in_dB:
+                gain_channel = convert_to_db(gain_channel)
+            calibration_tmp[channel_id] = gain_channel 
 
-                data_tmp[channel_id] = np.array(data_tmp_all_templates["sim"][template_key][ch_idx])
+            data_tmp[channel_id] = np.array(data_tmp_all_templates["sim"][template_key][ch_idx])
 
-            calibration_st[n] = calibration_tmp
-            data_st[n]["sim"] = data_tmp
+        calibration_st["impedance"] = calibration_tmp
+        data_st["impedance"]["sim"] = data_tmp
 
         
 
@@ -155,7 +128,6 @@ if __name__ == "__main__":
     plt.style.use("astroparticle_physics")
     # HISTOGRAM OF GAIN DEVIATION FROM BEST FIT
 
-                
     antenna_type_groups = {"deep_vpols" : [0, 1, 2, 3, 9, 10, 22, 23], "shallow_vpols" : [5, 6, 7]}
 
     facealpha = 0.2
@@ -169,7 +141,6 @@ if __name__ == "__main__":
                    (237./255, 103./255, 40./255, facealpha),   # orange
                    (10./255, 10./255, 10./255, facealpha)   # black
                    ]
-                           
 
     edgealpha = 1.
     colors_edge = [(205./255, 146./255, 218./255, edgealpha), # pink
@@ -185,19 +156,13 @@ if __name__ == "__main__":
 
     fig, axs = plt.subplots(len(antenna_type_groups), 1, figsize=(12, 10))
     axs = np.ndarray.flatten(axs)
-    dn_all_antenna = []
-    dG_all_antenna = []
-    gof_all_antenna = []
     for ax_i, (antenna_type_group, channel_ids) in enumerate(antenna_type_groups.items()):
-        dn = []
         dG = []
         gof = {}
-        for n in [*indices_of_refraction, "best_fit"]:
-            dn_n = []
+        for n in ["impedance", "best_fit"]:
             dG_n = []
             gof_n = []
             for station_idx, station_id in enumerate(station_ids):
-                dn_st = []
                 dG_st = []
                 gof_st = []
                 for channel_id in channel_ids:
@@ -219,16 +184,6 @@ if __name__ == "__main__":
                         dG_tmp = (dG_tmp / calibration[station_idx]["best_fit"][channel_id]) * 100
                     dG_tmp = np.abs(dG_tmp)
                     dG_st.append(dG_tmp)
-
-                    dn_tmp = np.abs(float(f"1.{n}") - default_n[station_id][channel_id])
-#                    if dn_tmp < 0.01:
-#                        print(dn_tmp)
-#                        print(default_n[station_id][channel_id])
-#                        print(f"n = {n}")
-#                        print(f"station = {station_id}")
-#                        print(f"channel = {channel_id}")
-#                        exit()
-                    dn_st.append(dn_tmp)
                     if dG_tmp > 500:
                         print("Warning this dG is probably bad data somewhere")
                         print("------------")
@@ -236,38 +191,25 @@ if __name__ == "__main__":
                         print(f"station = {station_id}")
                         print(f"channel = {channel_id}")
 
-                dn_n.append(dn_st)
                 dG_n.append(dG_st)
                 gof_n.append(gof_st)
-            dn.append(dn_n)
             dG.append(dG_n)
             gof[n] = gof_n
         # dims: [n, station, channel]
-        dn = ak.Array(dn)
         dG = ak.Array(dG)
         bin_contents, bin_edges = np.histogram(ak.ravel(dG), bins=20)
 
         
         
-        for n_i, n in enumerate(indices_of_refraction):
-            axs[ax_i].hist(ak.ravel(dG[n_i]),
-                           histtype="stepfilled",
-                           bins=bin_edges,
-                           label=f"n=1.{n}0",
-                           facecolor=colors_face[n_i], edgecolor=colors_edge[n_i],
-                           lw=2.)
+        axs[ax_i].hist(ak.ravel(dG[0]),
+                       histtype="stepfilled",
+                       bins=bin_edges,
+                       label=f"with vs without impedance mismatch",
+                       facecolor=colors_face[0], edgecolor=colors_edge[0],
+                       lw=2.)
 
-            if args.include_antenna_max_ratios:
-                max_default_antenna_model = antenna_models_max["RNOG_vpol_v3_5inch_center_n1.74"]
-                max_antenna_model = antenna_models_max[f"RNOG_vpol_new_v4_n{str(n)[0]}.{str(n)[1:]}"]
-                ratio_max = np.abs(1 - max_antenna_model/max_default_antenna_model) * 100
-                axs[ax_i].vlines(ratio_max, 0., np.max(bin_contents), color=colors_edge[n_i], lw=3, ls="dashed", label=f"ratio 1 - antenna_n{n}/default")
-                legend_loc = "upper left"
-                bbox_to_anchor = (1., 1.)
-            else:
-                legend_loc = "upper right"
-                bbox_to_anchor = (1., 1.)
-
+        legend_loc = "upper right"
+        bbox_to_anchor = (1., 1.)
         axs[ax_i].legend(loc=legend_loc, bbox_to_anchor=bbox_to_anchor, ncols=2, fontsize="xx-small")
         axs[ax_i].set_title(list(antenna_type_groups.keys())[ax_i])
         xlabel = "dG"
@@ -280,26 +222,20 @@ if __name__ == "__main__":
         axs[ax_i].set_xlabel(xlabel)
 
         axs[ax_i].set_ylabel("N")
-
-
-        dn_all_antenna.append(dn)
-        dG_all_antenna.append(dG)
-        gof_all_antenna.append(gof)
         
     fig.tight_layout()
-    fig.savefig(f"figures/antenna_tests/antenna_effect_season{args.season}.png")
+    fig.savefig(f"figures/antenna_tests/impedance_effect_season{args.season}.png")
     plt.close(fig)
 
     fig, axs = plt.subplots(len(antenna_type_groups), 1)
     axs = np.ndarray.flatten(axs)
     for ax_i, (antenna_type_group, channel_ids) in enumerate(antenna_type_groups.items()):
-        gof_tmp = gof_all_antenna[ax_i]
-        _, bin_edges = np.histogram(ak.ravel(ak.Array(gof_tmp.values())), bins=20)
-        for n_i, n in enumerate(indices_of_refraction):
-            axs[ax_i].hist(ak.ravel(ak.Array(gof_tmp[n])),
+        _, bin_edges = np.histogram(ak.ravel(ak.Array(gof.values())), bins=20)
+        for n_i, n in enumerate(["impedance"]):
+            axs[ax_i].hist(ak.ravel(ak.Array(gof[n])),
                            bins=bin_edges,
                            histtype="stepfilled",
-                           label=f"n=1.{n}0",
+                           label=f"{n}",
                            facecolor=colors_face[n_i], edgecolor=colors_edge[n_i],
                            lw=2.)
         axs[ax_i].hist(ak.ravel(ak.Array(gof["best_fit"])),
@@ -316,7 +252,7 @@ if __name__ == "__main__":
 
 
     fig.tight_layout()
-    fig.savefig(f"figures/antenna_tests/antenna_effect_season{args.season}_gof.png")
+    fig.savefig(f"figures/antenna_tests/impedance_effect_season{args.season}_gof.png")
     plt.close(fig)
 
 
@@ -326,7 +262,7 @@ if __name__ == "__main__":
     
     
     for station_idx, station_id in enumerate(station_ids):
-        pdf_path = f"figures/antenna_tests/data_fit_spectra_all_antenna_models_season{args.season}_st{station_id}.pdf"
+        pdf_path = f"figures/antenna_tests/data_fit_spectra_impedance_season{args.season}_st{station_id}.pdf"
         pdf = PdfPages(pdf_path)
 
         for channel_id in fit_settings["channels_to_include"]:
@@ -347,9 +283,9 @@ if __name__ == "__main__":
                     ls="dashed",
                     color="darkorange",
 #                    label=f"default fit (gof : {gof_tmp_default:.3f})"
-                    label=f"default fit (G : {calibration[station_idx]['best_fit'][channel_id]:.2f} dB)"
+                    label=f"default fit (G : {calibration[station_idx]['best_fit'][channel_id]:.2f})"
                     )
-            for n_i, n in enumerate(indices_of_refraction):
+            for n_i, n in enumerate(["impedance"]):
                 gof_tmp = fit_evaluation(frequencies,
                                          data[station_idx]["best_fit"]["data"][channel_id],
                                          data[station_idx][n]["sim"][channel_id],
@@ -357,7 +293,7 @@ if __name__ == "__main__":
                 ax.plot(data[station_idx]["best_fit"]["frequencies"],
                         data[station_idx][n]["sim"][channel_id],
 #                        label=f"v4 n={str(n)[0]}.{str(n)[1:]} (gof = {gof_tmp:.3f})"
-                        label=f"v4 G={str(n)[0]}.{str(n)[1:]} (G = {calibration[station_idx][n][channel_id]:.2f} dB)"
+                        label=f"v4 {n} (G = {calibration[station_idx][n][channel_id]:.2f})"
                         )
 #                if gof_tmp < gof_tmp_default:
 #                    print("------------")
@@ -367,33 +303,10 @@ if __name__ == "__main__":
 
             ax.set_xlim(0., 1.)
             ax.set_title(f"channel {channel_id}")
-            ax.legend(loc="upper right", fontsize="x-small", ncols=2)
+            ax.legend(loc="upper right", fontsize="x-small")
             ax.set_xlabel("frequencies / GHz")
             ax.set_ylabel("amplitude / V")
             fig.tight_layout()
             fig.savefig(pdf, format = "pdf")
             plt.close(fig)
         pdf.close()
-
-
-    def dG_ifo_dn(dn, dG_over_dn):
-        return dG_over_dn * dn
-        
-
-
-    fig, ax = plt.subplots()
-    for antenna_type_idx, (antenna_type_group, channel_ids) in enumerate(antenna_type_groups.items()):
-        ax.scatter(ak.ravel(dn_all_antenna[antenna_type_idx]), ak.ravel(dG_all_antenna[antenna_type_idx]), label=antenna_type_group)
-
-    p0, cov = curve_fit(dG_ifo_dn, np.array(ak.ravel(dn_all_antenna)), np.array(ak.ravel(dG_all_antenna)), p0=1.)
-    
-    x_fit_plot = np.arange(0, np.max(ak.ravel(dn_all_antenna)), 0.001)
-    ax.plot(x_fit_plot, dG_ifo_dn(x_fit_plot, *p0), label=f"linear fit\ndG/dn={p0[0]:.2f}")
-    
-    ax.set_xlabel("dn")
-    ax.set_ylabel("dG")
-    ax.set_title("Difference in calibrated gain\nwith varying antenna models")
-    ax.legend()
-
-    fig.tight_layout()
-    fig.savefig(f"figures/antenna_tests/dn_vs_dG_season{args.season}.png", dpi=150)

@@ -12,6 +12,11 @@ from utilities.utility_functions import read_freq_spectrum_from_pickle
 
 
 
+def normalize_felix(spectrum, frequencies):
+    spectrum_sample = spectrum[np.where((0.405 < frequencies) & (frequencies < 0.410))]
+    spectrum /= np.mean(spectrum_sample)
+    spectrum *= 0.8
+    return spectrum
 
 
 
@@ -81,3 +86,43 @@ if __name__ == "__main__":
 
 
     pdf.close()
+
+
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+    figname = "figures/paper/data_spectra_stacked.png"
+    plt.style.use("astroparticle_physics")
+    
+    
+    fig, axs = plt.subplots(2, 2, sharex=True, sharey=True)
+    axs = np.ndarray.flatten(axs)
+
+    normalize = normalize_felix
+
+    for ax_i, (channel_type, channel_ids) in enumerate(channel_types.items()):
+        color_i = ax_i
+        if channel_type == "LPDA down":
+            ax_i = 3
+        for station_idx, station_id in enumerate(station_ids):
+            for channel_id in channel_ids:
+
+                if channel_id in known_broken_channels[str(season)][str(station_id)]:
+                    color="gray"
+                else:
+                    color=colors[color_i]
+
+
+                frequencies = data[station_idx]["frequencies"]
+                spectrum = data[station_idx]["spectrum"][channel_id]
+                if args.normalize:
+                    spectrum = normalize(spectrum, frequencies)
+                axs[ax_i].plot(data[station_idx]["frequencies"],
+                        spectrum,
+                        alpha = 0.5, color=color, lw=1.)
+
+    for ax in axs:
+        ax.set_xlim(0., 0.85)
+        ax.set_ylim(None, 1.2)
+    fig.text(0.5, 0., 'frequencies / GHz', ha='center')
+    fig.text(0., 0.5, 'amplitude / a.u.', va='center', rotation='vertical')
+    fig.tight_layout()
+    fig.savefig(figname, dpi=300)

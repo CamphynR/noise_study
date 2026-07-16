@@ -4,7 +4,6 @@ import numpy as np
 import os
 import pandas as pd
 
-from utilities.utility_functions import convert_to_db, convert_error_to_db
 
 
 if __name__ == "__main__":
@@ -26,9 +25,9 @@ if __name__ == "__main__":
     
     season = args.season
     channel_type = args.channel_type
-    gains_per_st = [0 for station_id in station_ids]
-    gains_error_per_st = [0 for station_id in station_ids]
-    gains = []
+    slopes_per_st = [0 for station_id in station_ids]
+    slopes_error_per_st = [0 for station_id in station_ids]
+    slopes = []
     for station_id in station_ids:
         radiant_calibration_path = f"absolute_amplitude_results/season{args.season}/station{station_id}/{calibration_type}/absolute_amplitude_calibration_season{season}_st{station_id}_{calibration_type}_best_fit.csv"
         if calibration_type == "default":
@@ -36,15 +35,14 @@ if __name__ == "__main__":
             radiant_calibration_error_path = f"absolute_amplitude_results/season{args.season}/station{station_id}/{calibration_type}/absolute_amplitude_calibration_season{season}_st{station_id}_best_fiterror.csv"
         calibration = pd.read_csv(radiant_calibration_path, index_col=0)
         calibration_error = pd.read_csv(radiant_calibration_error_path, index_col=0)
-        gain = calibration["gain"].to_numpy()
-        gains_per_st[station_ids.index(station_id)] = gain
-        gains_error_per_st[station_ids.index(station_id)] = calibration_error["gain"].to_numpy()
-        gains.append(gain)
+        slope = calibration["slope"].to_numpy()
+        slopes_per_st[station_ids.index(station_id)] = slope
+        slopes_error_per_st[station_ids.index(station_id)] = calibration_error["slope"].to_numpy()
+        slopes.append(slope)
 
     
-    gains = np.array(gains)
-    gains = convert_to_db(gains)
-    gains = gains.T
+    slopes = np.array(slopes)
+    slopes = slopes.T
 
 
     channel_types = {"VPols" :[0, 1, 2, 3, 5, 6, 7, 9, 10, 22, 23],
@@ -63,12 +61,12 @@ if __name__ == "__main__":
     handles = []
     labels = []
     for ax_i, (ax, channel_type) in enumerate(zip(axs, channel_types)):
-        gains_channel_type = gains[channel_types[channel_type]]
-        mean = np.mean(gains_channel_type, axis=0)
-        std = np.std(gains_channel_type, axis=0)
-        outliers = np.logical_or(np.greater(gains_channel_type, mean + 2.2*std), np.less(gains_channel_type, mean - 2.2*std))
+        slopes_channel_type = slopes[channel_types[channel_type]]
+        mean = np.mean(slopes_channel_type, axis=0)
+        std = np.std(slopes_channel_type, axis=0)
+        outliers = np.logical_or(np.greater(slopes_channel_type, mean + 2.2*std), np.less(slopes_channel_type, mean - 2.2*std))
         for station_index, station_id in enumerate(station_ids):
-            violin = ax.violinplot(gains_channel_type[:, station_index][~outliers[:, station_index]],
+            violin = ax.violinplot(slopes_channel_type[:, station_index][~outliers[:, station_index]],
                           positions=[station_index + 1], vert=True, showmeans=True)
             # you cannot pass color kwarg to ax.violinplot 
             for part in violin:
@@ -84,11 +82,12 @@ if __name__ == "__main__":
                 label = channel_type
             outliers_channel = outliers[channel_index, :]
             ax.scatter(np.arange(1, len(station_ids)+1)[~outliers_channel],
-                       gains.T[~outliers_channel, channel_id],
+                       slopes.T[~outliers_channel, channel_id],
                        color=colors[ax_i],
                        label=label)
             if np.any(outliers_channel == True): 
-                ax.scatter(np.arange(1, len(station_ids)+1)[outliers_channel], gains.T[outliers_channel, channel_id],
+                ax.scatter(np.arange(1, len(station_ids)+1)[outliers_channel],
+                           slopes.T[outliers_channel, channel_id],
                            marker=markers[channel_index],
 #                           label=f"channel {channel_id}",
                            color="gray",
@@ -101,11 +100,11 @@ if __name__ == "__main__":
         ax.set_xticks(np.arange(1, len(station_ids)+1), station_ids)
         ax.tick_params(axis='both', which='major', labelsize=21)
 #        ax.set_title(f"{channel_type}", size=26)
-    axs[0].set_ylabel("Gain / dB", size=26)
+    axs[0].set_ylabel("slope 1/GHz", size=26)
     fig.legend(handles, labels, ncols=5, loc="lower center", bbox_to_anchor=(0.5, 0.99), fontsize="x-large")
     fig.text(0.5, 0., "Station", ha="center", va="center", size="x-large")
     fig.tight_layout()
-    fig.savefig(f"figures/overviews/gain_season{season}.png", bbox_inches="tight")
+    fig.savefig(f"figures/overviews/slope_season{season}.png", bbox_inches="tight")
     plt.close(fig)
 
 
@@ -113,20 +112,20 @@ if __name__ == "__main__":
     fig, ax = plt.subplots()
     for station_id in station_ids:
         ax.errorbar(channel_ids,
-                   convert_to_db(gains_per_st[station_ids.index(station_id)]),
-                    yerr = convert_error_to_db(gains_error_per_st[station_ids.index(station_id)], gains_per_st[station_ids.index(station_id)]),
+                   slopes_per_st[station_ids.index(station_id)],
+                    yerr = slopes_error_per_st[station_ids.index(station_id)],
                    label=f"station {station_id}",
                     fmt="o",
                     ls=None
                    )
 
     ax.set_xlabel("channel")
-    ax.set_ylabel("Gain / dB")
+    ax.set_ylabel("slope/ 1/GHz")
     ax.set_xticks(channel_ids, labels=channel_ids, rotation=-60)
     ax.legend()
     ax.set_ylim(53, 67)
     fig.tight_layout()
-    fig.savefig(f"figures/overviews/gains_season{season}_per_station.png", bbox_inches="tight")
+    fig.savefig(f"figures/overviews/slopes_season{season}_per_station.png", bbox_inches="tight")
 
 
     
