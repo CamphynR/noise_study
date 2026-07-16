@@ -25,13 +25,14 @@ def find_frequency_peaks(freq: np.ndarray, spectrum : np.ndarray, threshold : fl
 
     return peak_idxs
 
-def calculate_reduced_chi2(spectrum_1, spectrum_2, frequencies, freq_range):
+def calculate_reduced_chi2(spectrum_1, spectrum_2, var_1, frequencies, freq_range):
     mask = (frequencies > freq_range[0]) & (frequencies < freq_range[1])
     spectrum_1 = np.abs(spectrum_1[mask])
     spectrum_2 = np.abs(spectrum_2[mask])
+    var_1 = var_1[mask]
     ndof = len(spectrum_1)
 
-    chi2 = np.sum((spectrum_1 - spectrum_2)**2)
+    chi2 = np.sum((spectrum_1 - spectrum_2)**2/var_1)
     chi2_reduced = chi2/ndof
 
     return chi2_reduced
@@ -43,9 +44,15 @@ def read_freq_spec_file(path):
     Reads the pickle file that contains frequency and spectra data
     """
     result_dictionary = copy.deepcopy(read_pickle(path))
-    frequencies = result_dictionary["freq"]
-    frequency_spectrum = result_dictionary["frequency_spectrum"]
-    var_frequency_spectrum = result_dictionary["var_frequency_spectrum"]
+    try:
+        frequencies = result_dictionary["freq"]
+        frequency_spectrum = result_dictionary["frequency_spectrum"]
+        var_frequency_spectrum = result_dictionary["var_frequency_spectrum"]
+    except KeyError:
+        frequencies = result_dictionary["frequencies"]
+        frequency_spectrum = result_dictionary["spectrum"]
+        var_frequency_spectrum = result_dictionary["var_spectrum"]
+
     header = result_dictionary["header"]
     return frequencies, frequency_spectrum, var_frequency_spectrum, header
 
@@ -59,16 +66,28 @@ class spectrumFitter:
                  bandpass=None, bandpass_type="butter",
                  system_response=None,
                  cost_function = None,
-                 fit_function_parameter_guesses=None,
                  goodness_of_fit_function=calculate_reduced_chi2,
                  remove_cable=True,
-                 cable_length=11):
+                 cable_length=11,
+                 scale_noise_components=None,
+                 impedance_mismatch_factors=None):
         """
         sim_paths : list
             list of all simulation components, without the sum
             the order is assumed to be ice, electronic, galactic, rest
         system_response : array or systemResponseTimeDomainIncorporator instance
             the module can accept a system response to apply to the simulations
+        cable_length : float
+            length of cable to be divided out of electronic noise measurements for lpdas
+            the lpdas are connected to the surface by an ~11m cable this cable needs to be divided
+            out of the electronic noise since it's already in the system response template
+        scale_noise_components : dict
+            for systematic estimation purposes
+            Allows for manualy scaling individual noise components by a fixed number
+            dict should contain keys: 'ice', 'electronic', 'galactic'
+            each key contains a list of len(nr_channels) which describes the scaling
+        impedance_mismatch_factors: 
+
         """
 
         config_path = find_config(sim_paths[0], sim=True)
@@ -77,7 +96,7 @@ class spectrumFitter:
 
         vpols = [0, 1, 2, 3, 5, 6, 7, 9, 10, 22, 23]
         hpols = [4, 8, 11, 21]
-        lpdas = [12, 13, 14, 15, 16, 17, 18, 19, 20]    
+        self.lpdas = [12, 13, 14, 15, 16, 17, 18, 19, 20]    
 
 
         self.channels_to_include = self.config["channels_to_include"]
@@ -89,12 +108,15 @@ class spectrumFitter:
         self.var_data_spectrum, \
         self.data_header = read_freq_spec_file(data_path)
 
+
+
         self.goodness_of_fit_function = goodness_of_fit_function
 
         if isinstance(system_response, systemResponseTimeDomainIncorporator):
             system_response = np.array([system_response.get_response(c)["gain"](self.frequencies) for c in range(len(self.channels_to_include))])
             for gain in system_response:
                 assert np.max(gain) == 1.
+            self.system_response = system_response
         
 
 
@@ -104,7 +126,13 @@ class spectrumFitter:
         # with the cable in the system response template
 
         cable_response_helper = cableResponse(length=cable_length)
-        self.cable_response = cable_response_helper.get_gain()(self.frequencies)
+        self.cable_response = cable_response_helper(self.frequencies)
+
+
+
+        self.scale_noise_components = scale_noise_components
+
+        self.impedance_mismatch_factors = impedance_mismatch_factors
 
 
 
@@ -122,7 +150,7 @@ class spectrumFitter:
                 sim_var_spectrum_i = sim_var_spectrum_i * system_response**2
                 # divide out cable from electronic noise in lpdas
                 if i == 1 and remove_cable:
-                    lpda_idx = [c in lpdas for c in self.channels_to_include]
+                    lpda_idx = [c in self.lpdas for c in self.channels_to_include]
                     for channel_idx in np.nonzero(lpda_idx)[0]:
                         sim_spectrum_i[channel_idx] = sim_spectrum_i[channel_idx] / self.cable_response
             self.sim_spectra.append(sim_spectrum_i)
@@ -143,7 +171,7 @@ class spectrumFitter:
                     self.cross_products[cross_i] = system_response * cross_product
                 # divide out cable from electronic noise in lpdas
                 if cross_i in [0, 2] and remove_cable:
-                    lpda_idx = [c in lpdas for c in self.channels_to_include]
+                    lpda_idx = [c in self.lpdas for c in self.channels_to_include]
                     for channel_idx in np.nonzero(lpda_idx)[0]:
                         self.cross_products[cross_i][channel_idx] = self.cross_products[cross_i][channel_idx] / self.cable_response
 
@@ -178,7 +206,8 @@ class spectrumFitter:
                 idxs_to_remove = np.ndarray.flatten(idxs_to_remove)
 
                 frequencies_no_cw_idxs = np.arange(len(self.frequencies))
-                frequencies_no_cw_idxs = np.delete(frequencies_no_cw_idxs, idxs_to_remove)
+                if len(idxs_to_remove) != 0:
+                    frequencies_no_cw_idxs = np.delete(frequencies_no_cw_idxs, idxs_to_remove)
 
                 frequencies_no_cw_idxs = np.intersect1d(frequencies_no_cw_idxs, fit_band)
 
@@ -205,7 +234,6 @@ class spectrumFitter:
 
         self.bandpass_type = bandpass_type
 
-        self.fit_function_parameter_guesses = fit_function_parameter_guesses
 
         if cost_function is None:
             self.cost_function = LeastSquares
@@ -217,7 +245,8 @@ class spectrumFitter:
 
         return
 
-    def get_fit_gain(self, mode="constant", choose_channels=None, parameter_limits=None):
+    def get_fit_gain(self, mode="constant", choose_channels=None,
+                     parameter_guesses=None, parameter_limits=None, parameter_fixed=None):
         if choose_channels is None:
             channel_ids = self.channels_to_include
         else:
@@ -252,39 +281,48 @@ class spectrumFitter:
                 cost_function = self.cost_function(x=x_data, y=y_data,
                                              yerror=y_err,
                                              model=fit_function)
-                if self.fit_function_parameter_guesses is None:
-                    self.fit_function_parameter_guesses = dict(
+                if parameter_guesses is None:
+                    parameter_guesses = dict(
                             gain=1000.,
                             el_ampl=0.,
                             el_cst=1.,
                             f0=0.15
                             )
-                m = Minuit(cost_function, **self.fit_function_parameter_guesses)
-                m.fixed["gain"] = False
-                m.fixed["el_ampl"] = True
-                m.fixed["el_cst"] = True
-                m.fixed["f0"] = True
+                parameter_guesses_channel = {}
+                for parameter_name, parameter_guess in parameter_guesses.items():
+                    if len(parameter_guesses) > 1:
+                        parameter_guesses_channel[parameter_name] = parameter_guess[channel_id]
+                    else:
+                        parameter_guesses_channel[parameter_name] = parameter_guess 
+                m = Minuit(cost_function, **parameter_guesses_channel)
 
-                if parameter_limits is None:
-                    parameter_limits = [(0., 1500), (0., None), (0., None), (0., 0.6)]
-                m.limits = parameter_limits
+                if parameter_fixed is None:
+                    m.fixed["gain"] = False
+                    m.fixed["el_ampl"] = True
+                    m.fixed["el_cst"] = True
+                    m.fixed["f0"] = True
 
-                m.migrad()
-                m.fixed["gain"] = True
-                m.fixed["el_ampl"] = False
-                m.fixed["el_cst"] = False
-                m.fixed["f0"] = True
-                m.migrad()
-                m.fixed["gain"] = False
-                m.fixed["el_ampl"] = True
-                m.fixed["el_cst"] = True
-                m.fixed["f0"] = True
-                m.migrad()
-#                m.fixed["gain"] = False
-#                m.fixed["el_ampl"] = False
-#                m.fixed["el_cst"] = False
-#                m.fixed["f0"] = True
-#                m.migrad()
+                    if parameter_limits is None:
+                        parameter_limits = [(0., 1500), (0., None), (0., None), (0., 0.6)]
+                    m.limits = parameter_limits
+
+                    m.migrad()
+                    m.fixed["gain"] = True
+                    m.fixed["el_ampl"] = False
+                    m.fixed["el_cst"] = False
+                    m.fixed["f0"] = True
+                    m.migrad()
+                    m.fixed["gain"] = False
+                    m.fixed["el_ampl"] = True
+                    m.fixed["el_cst"] = True
+                    m.fixed["f0"] = True
+                    m.migrad()
+                else:
+                    for fit_step in parameter_fixed:
+                        m.fixed["gain"] = fit_step[0]
+                        m.fixed["slope"] = fit_step[1]
+                        m.fixed["f0"] = fit_step[2]
+                        m.migrad()
                 m.hesse()
                 fit_results.append(m.params)
             elif mode == "electronic_weight":
@@ -292,14 +330,14 @@ class spectrumFitter:
                 cost_function = self.cost_function(x=x_data, y=y_data,
                                              yerror=y_err,
                                              model=fit_function)
-                if self.fit_function_parameter_guesses is None:
-                    self.fit_function_parameter_guesses = dict(
+                if parameter_guesses is None:
+                    parameter_guesses = dict(
                             gain=1000.,
                             el_ampl=0.,
                             el_cst=1.,
                             f0=0.15
                             )
-                m = Minuit(cost_function, **self.fit_function_parameter_guesses)
+                m = Minuit(cost_function, **parameter_guesses)
                 m.fixed["gain"] = False
                 m.fixed["el_ampl"] = True
                 m.fixed["el_cst"] = True
@@ -327,9 +365,70 @@ class spectrumFitter:
 #                m.migrad()
                 m.hesse()
                 fit_results.append(m.params)
+            elif mode == "system_response_weight":
+                fit_function = self.select_fit_function(mode, channel_id)
+                cost_function = self.cost_function(x=x_data, y=y_data,
+                                             yerror=y_err,
+                                             model=fit_function)
+                if parameter_guesses is None:
+                    parameter_guesses = dict(
+                            gain=1000.,
+                            slope=0.,
+                            f0=0.4
+                            )
+                parameter_guesses_channel = {}
+                for parameter_name, parameter_guess in parameter_guesses.items():
+                    if np.ndim(parameter_guess) > 0:
+                        parameter_guesses_channel[parameter_name] = parameter_guess[channel_id]
+                    else:
+                        parameter_guesses_channel[parameter_name] = parameter_guess 
+                m = Minuit(cost_function, **parameter_guesses_channel)
+                if parameter_limits is None:
+                    parameter_limits = [(0., None), (-3, 3.), (0., 1.)]
+                m.limits = parameter_limits
+                if parameter_fixed is None:
+                    # we set the slope for LPDAs to 0
+                    if channel_id in self.lpdas:
+                        m.fixed["gain"] = False
+                        m.fixed["slope"] = True
+                        m.fixed["f0"] = True
+                        m.migrad()
+                    else:
+                        m.fixed["gain"] = False
+                        m.fixed["slope"] = True
+                        m.fixed["f0"] = True
+                        m.migrad()
+
+                        m.fixed["gain"] = True
+                        m.fixed["slope"] = False
+                        m.fixed["f0"] = True
+                        m.migrad()
+
+                        m.fixed["gain"] = False
+                        m.fixed["slope"] = False
+                        m.fixed["f0"] = True
+                        m.migrad()
+                else:
+                    # # we set the slope for LPDAs to 0
+                    if channel_id in self.lpdas:
+                        m.fixed["gain"] = False
+                        m.fixed["slope"] = True
+                        m.fixed["f0"] = True
+                        m.migrad()
+                    else:
+                        for step in parameter_fixed:
+                            m.fixed["gain"] = step[0]
+                            m.fixed["slope"] = step[1]
+                            m.fixed["f0"] = step[2]
+                            m.migrad()
+
+
+
+                m.hesse()
+                fit_results.append(m.params)
             elif isinstance(mode, dict):
-                if self.fit_function_parameter_guesses is None:
-                    self.fit_function_parameter_guesses = dict(
+                if parameter_guesses is None:
+                    parameter_guesses = dict(
                             gain=1000.,
                             el_ampl=0.,
                             el_cst=1.,
@@ -339,7 +438,7 @@ class spectrumFitter:
                 cost_function = self.cost_function(x=x_data, y=y_data,
                                              yerror=y_err,
                                              model=fit_function)
-                m = Minuit(cost_function, **self.fit_function_parameter_guesses)
+                m = Minuit(cost_function, parameter_guesses)
                 m.limits = [(0., 1500), (0., None), (0., None), (0., 0.6)]
                 for step_nr, step in mode["steps"].items():
                     m.fixed["gain"] = step["gain"]
@@ -355,7 +454,7 @@ class spectrumFitter:
 
             fit_param_list = [param.value for param in m.params]
             sim_spectrum = fit_function(x_data, *fit_param_list)
-            gof = self.goodness_of_fit_function(y_data, np.abs(sim_spectrum),
+            gof = self.goodness_of_fit_function(y_data, np.abs(sim_spectrum), y_err,
                                                 x_data, freq_range=self.fit_range)
             goodness_of_fits.append(gof)
 
@@ -364,18 +463,25 @@ class spectrumFitter:
 
 
 
-    def save_fit_results(self, mode="electronic_temp", parameter_limits=None,
+    def save_fit_results(self, mode="electronic_temp",
+                         parameter_guesses=None, parameter_limits=None, parameter_fixed=None,
                          save_folder=None, filename=None, extended=True):
         """
         If extended is True, save all fit parameters,
         otherwise only save gain
+
+        parameters_fixed: list
+            list of when to set a parameter fixed, each element in the list should be a list of the length of the parameters
+            for each element the fit is calculated e.g. [[True, False], [False, True]] runs the fit twice, once with the second parameter free and once with the first parameter free
 
         Also returns the fit results to use in plotting
         """
         if save_folder is None:
             save_folder = os.path.dirname(__file__)
 
-        fit_results, goodness_of_fits = self.get_fit_gain(mode=mode, parameter_limits=parameter_limits)
+        # goodness_of_fits is list of len nr_channels
+        fit_results, goodness_of_fits = self.get_fit_gain(mode=mode,
+                                                          parameter_guesses=parameter_guesses, parameter_limits=parameter_limits, parameter_fixed=parameter_fixed)
 
         if extended:
             value_dicts = [{f.name : f.value for f in fit_result} for fit_result in fit_results]
@@ -383,6 +489,9 @@ class spectrumFitter:
         else:
             value_dicts = [{"gain" : fit_result["gain"].value} for fit_result in fit_results]
             error_dicts = [{"gain" : fit_result["gain"].error} for fit_result in fit_results]
+
+        for i in range(len(value_dicts)):
+            value_dicts[i]["gof"] = goodness_of_fits[i]
 
         value_df = pd.DataFrame(value_dicts)
         value_df["channel_id"] = self.channels_to_include
@@ -443,7 +552,9 @@ class spectrumFitter:
                 idxs_to_remove = np.ndarray.flatten(idxs_to_remove)
 
                 frequencies_no_cw_idxs = np.arange(len(self.frequencies))
-                frequencies_no_cw_idxs = np.delete(frequencies_no_cw_idxs, idxs_to_remove)
+
+                if len(idxs_to_remove) != 0:
+                    frequencies_no_cw_idxs = np.delete(frequencies_no_cw_idxs, idxs_to_remove)
 
                 frequencies_no_cw_idxs = np.intersect1d(frequencies_no_cw_idxs, fit_band)
 
@@ -479,6 +590,28 @@ class spectrumFitter:
             ice_el_cross = self.cross_products[0][channel_idx]
             ice_gal_cross = self.cross_products[1][channel_idx]
             el_gal_cross = self.cross_products[2][channel_idx]
+
+
+            if self.scale_noise_components:
+                ice_spectrum *= self.scale_noise_components["ice"][channel_idx]
+                electronic_spectrum *= self.scale_noise_components["electronic"][channel_idx]
+                galactic_spectrum *= self.scale_noise_components["galactic"][channel_idx]
+
+                ice_el_cross *= self.scale_noise_components["ice"][channel_idx] * self.scale_noise_components["electronic"][channel_idx]
+                ice_gal_cross *= self.scale_noise_components["ice"][channel_idx] * self.scale_noise_components["galactic"][channel_idx]
+                el_gal_cross *= self.scale_noise_components["electronic"][channel_idx] * self.scale_noise_components["galactic"][channel_idx]
+
+
+            if self.impedance_mismatch_factors is not None:
+                if self.impedance_mismatch_factors[channel_id] is not None:
+                    ice_spectrum *= self.impedance_mismatch_factors[channel_id](self.frequencies)
+                    galactic_spectrum *= self.impedance_mismatch_factors[channel_id](self.frequencies)
+                    
+                    ice_el_cross *= self.impedance_mismatch_factors[channel_id](self.frequencies)
+                    el_gal_cross *= self.impedance_mismatch_factors[channel_id](self.frequencies)
+                    ice_gal_cross *= self.impedance_mismatch_factors[channel_id](self.frequencies)**2
+
+
 
             def fit_gain_factor(freq, gain):
 
@@ -548,6 +681,39 @@ class spectrumFitter:
                 return function_interp(freq)
                 
             fit_function = fit_electronic_temp
+        elif mode == "system_response_weight":
+            ice_spectrum = self.sim_spectra[0][channel_idx]
+            electronic_spectrum = self.sim_spectra[1][channel_idx]
+            galactic_spectrum = self.sim_spectra[2][channel_idx]
+
+            ice_el_cross = self.cross_products[0][channel_idx]
+            ice_gal_cross = self.cross_products[1][channel_idx]
+            el_gal_cross = self.cross_products[2][channel_idx]
+
+            def fit_system_response(freq, gain, slope, f0):
+                # Johnson-Nyquist: V² ~ T
+
+#                ch_bandpass = channelBandPassFilter()
+#                filt = ch_bandpass.get_filter(self.frequencies, station_id=-1, channel_id=-1, det=-1, passband=self.bandpass, filter_type=self.bandpass_type, order=10)
+#                filt = np.abs(filt)
+                weight = 1.0 + slope * (self.frequencies - f0)
+                # weight = 1.0/weight
+                weight /= np.max(weight * self.system_response[channel_id])
+                 
+
+                combined_spectrum = \
+                        gain * weight * np.sqrt( \
+                        (ice_spectrum)**2 + electronic_spectrum**2 + galactic_spectrum**2 
+                    +   ice_el_cross + ice_gal_cross + el_gal_cross ) 
+
+                function_interp = interp1d(self.frequencies,
+                                           combined_spectrum
+                                           )
+                
+                
+                return function_interp(freq)
+                
+            fit_function = fit_system_response
         else:
             raise NotImplementedError
 
