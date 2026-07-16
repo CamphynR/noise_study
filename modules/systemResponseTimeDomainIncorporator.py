@@ -150,7 +150,7 @@ class systemResponseTimeDomainIncorporator():
         return
 
 
-    def begin(self, response_path, det=0, station_id=0, normalize=True, overwrite_key=None, bandpass_kwargs=None):
+    def begin(self, response_path, det=0, station_id=0, normalize=True, overwrite_key=None, bandpass_kwargs=None, weights=None):
         """
         response_path: path to system impulse response measurements,
         if 2 are given the first is assumed to be for in-ice antennas
@@ -160,17 +160,20 @@ class systemResponseTimeDomainIncorporator():
             if str use one template key for all channels,
             if dict of channel ids match channel_id with template keys
                 and module will only load channels defined in the dict
+        weights: optional weigth to add to response, expected to be dictionary with channel_ids as keys
         """
         if det and station_id:
             station_info = det.get_station(station_id)
             self.channel_ids = sorted(station_info["channels"])
             self.sampling_rate = station_info["sampling_rate"]
-            self.nr_samples = station_info["nr_samples"]
+            self.nr_samples = station_info["number_of_samples"]
         else:
             self.channel_ids = np.arange(24)
             self.sampling_rate = 3.2 * units.GHz
             self.nr_samples = 2048
             logging.warning(f"no det and station_id given, using default values for (sampling_rate, nr_samples, channel_ids) = ({self.sampling_rate}, {self.nr_samples}, [0-24])")
+        
+        self.frequencies = np.fft.rfftfreq(self.nr_samples, d=1./self.sampling_rate)
 
 
         if overwrite_key is None:
@@ -236,11 +239,21 @@ class systemResponseTimeDomainIncorporator():
                             fill_value=0.)
                 self.response[channel_id]["gain"], self.response[channel_id]["phase"] = response_tmp_gain, response_tmp_phase
 
+        if weights:
+            for channel_id in self.channel_ids:
+                weight = weights[channel_id]
+                response = copy.copy(self.response[channel_id]["gain"])
+                weighted_response = interpolate.interp1d(self.frequencies, response(self.frequencies) * weight)
+                self.response[channel_id]["gain"] = weighted_response
 
 
         if normalize:
             for channel_id in self.channel_ids:
-                self.response[channel_id]["gain"], self.normalizations[channel_id] = rescale_response(self.response[channel_id]["gain"], return_norm=True)
+                frequencies = np.fft.rfftfreq(self.nr_samples, d=1./self.sampling_rate)
+                self.response[channel_id]["gain"], self.normalizations[channel_id] = rescale_response(self.response[channel_id]["gain"],
+                                                                                                      sampling_rate=self.sampling_rate,
+                                                                                                      return_norm=True)
+
 
         return
 
@@ -260,6 +273,9 @@ class systemResponseTimeDomainIncorporator():
     def apply_response(self, spectrum, frequencies, response):
         spectrum_with_response = spectrum * response(frequencies)
         return spectrum_with_response
+
+    def get_frequencies(self):
+        return self.frequencies
 
     def get_response(self, channel_id):
         return self.response[channel_id]
