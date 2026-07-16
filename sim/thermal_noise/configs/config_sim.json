@@ -72,11 +72,11 @@
     },
 
     "antenna_models" : {
-        "VPol_100m" : "RNOG_vpol_v4_final_IGLU_n1.728",
-        "VPol_80m" : "RNOG_vpol_v4_final_IGLU_n1.711",
-        "VPol_60m" : "RNOG_vpol_v4_final_IGLU_n1.656",
-        "VPol_40m" : "RNOG_vpol_v4_final_IGLU_n1.584",
-        "HPol" : "RNOG_hpol_v4_8inch_center_n1.74",
+        "VPol_100m" : "RNOG_vpol_v4_final_n1.728",
+        "VPol_80m" : "RNOG_vpol_v4_final_n1.711",
+        "VPol_60m" : "RNOG_vpol_v4_final_n1.656",
+        "VPol_40m" : "RNOG_vpol_v4_final_n1.584",
+        "HPol" : "RNOG_hpol_v5_8inch_center_n1.728",
         "LPDA" : "createLPDA_100MHz_InfFirn_n1.4"}
 
 }
