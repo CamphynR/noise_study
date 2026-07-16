@@ -1,6 +1,6 @@
 # RNO-G absolute system response calibration
 
-##### For a complete desctiption of workflow and most components in this repo see README_extended
+#### For a complete desctiption of workflow and most components in this repo see README_extended
 
 This repository contains the code to construct, develop and test the thermal noise system response calibration.
 The calibration has a wiki page, which can be found here: https://radio.uchicago.edu/wiki/index.php/Thermal_noise_for_detector_response_calibration 
