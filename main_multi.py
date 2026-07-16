@@ -1,6 +1,6 @@
 """
 This file is written to process RNOG data using the NuRadio modules, in particular the readRNOGDataMattak module.
-One can choose cleaning modules (either homemade or directly frim NuRadio) and a variable to process and the script will
+One can choose cleaning modules (either homemade or directly from NuRadio) and a variable to process and the script will
 run over all available data, calculate the variable and store it in a pickle file.
 
 Whether all variables or only the mean over all events is to be stored can be chosen in the argument parser using the --only_mean flag
@@ -16,7 +16,6 @@ import glob
 import json
 import logging
 import matplotlib.pyplot as plt
-#import multiprocessing
 import numpy as np
 import os
 import pickle
@@ -91,7 +90,7 @@ def print_malloc_snapshot(max_nr_stats=10):
 
 
 if __name__ == "__main__":
-    tracemalloc.start()
+#    tracemalloc.start()
 
     parser = argparse.ArgumentParser(prog = "%(prog)s",
                                      usage = "placeholder")
@@ -114,9 +113,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
 
+
     logger = logging.getLogger(__name__)
     log_level = logging.WARNING if args.test else logging.CRITICAL
     logging.basicConfig(level = log_level)
+
+
 
     with open(args.config, "r") as config_json:
         config = json.load(config_json)
@@ -139,8 +141,7 @@ if __name__ == "__main__":
 
     root_dirs, is_root, is_nur, config = find_data_files(args, config)
 
-    print(root_dirs)
-
+    logger.info(f"processing {root_dirs[args.batch_i]}")
 
 
 
@@ -152,7 +153,9 @@ if __name__ == "__main__":
         run_time_range = config["run_time_range"]
 
 
-    calibration = config["calibration"][str(args.station)]
+
+    if not is_nur:
+        calibration = config["calibration"][str(args.station)]
     mattak_kw = config["mattak_kw"]
 
     def batch_process(batch_i):
@@ -164,6 +167,7 @@ if __name__ == "__main__":
         # save per run
         for root_dir in root_dirs_batch:
             run_nr = os.path.basename(root_dir).split("run")[-1]
+            print(run_nr)
             # note if no runtable provided, runtable is queried from the database
             rnog_reader = dataProviderRNOG()
             logger.debug("beginning reader")
@@ -218,10 +222,3 @@ if __name__ == "__main__":
             batch_process(args.batch_i)
         elif is_nur:
             batch_process_nur(args.batch_i)
-#        if is_nur:
-#            if config["simulation"] == False:
-#                with multiprocessing.Pool() as p:
-#                    p.map(batch_process_nur, range(args.nr_batches))
-#        else:
-#            with multiprocessing.Pool() as p:
-#                p.map(batch_process, range(len(root_dirs)))
