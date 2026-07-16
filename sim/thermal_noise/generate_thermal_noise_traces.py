@@ -281,6 +281,7 @@ if __name__ == "__main__":
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--print_progress", action="store_true")
     parser.add_argument("--batch_i", default=None)
+    parser.add_argument("--events_per_batch", default=None, type=int)
     parser.add_argument("--name_appendix", default=None)
     args = parser.parse_args()
 
@@ -302,18 +303,16 @@ if __name__ == "__main__":
 
 
 
-    #testing
-#    antenna_shift = -50 * units.MHz 
-    antenna_shift = None
-
-
 
 
     create_nested_dir(save_dir)
     settings_dict = {**config, **vars(args)}
     settings_dict["simulation"] = True
-    if antenna_shift is not None:
+    if "antenna_shift" in config.keys():
+        antenna_shift = config["antenna_shift"]
         settings_dict["antenna_shift"] = antenna_shift
+    else:
+        antenna_shift = None
 
     config_file = f"{save_dir}/station{args.station}/{os.path.basename(args.config)}"
     os.makedirs(f"{save_dir}/station{args.station}", exist_ok=True)
@@ -448,7 +447,10 @@ if __name__ == "__main__":
             return events
 
     if not args.debug:
-        events_per_batch = 200
+        if not args.events_per_batch:
+            events_per_batch = 400
+        else:
+            events_per_batch = args.events_per_batch
         events_process(args.batch_i, channels_to_include=channels_to_include)
 
 
@@ -460,7 +462,7 @@ if __name__ == "__main__":
         nr_batches = 1
         events_per_batch = 20
         channel_test_ids = [0]
-        noise_sources = ["galactic"]
+        noise_sources = ["ice"]
         t0 = datetime.datetime.now()
         events = events_process(0, channels_to_include=channel_test_ids, debug=True)
         dt = datetime.datetime.now() - t0
