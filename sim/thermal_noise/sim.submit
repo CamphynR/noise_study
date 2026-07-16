@@ -12,4 +12,4 @@ request_cpus = 1
 request_memory = 4000MB
 request_disk = 5GB
 should_transfer_files = NO
-queue 64
+queue 32
