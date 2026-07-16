@@ -42,29 +42,58 @@ if __name__ == "__main__":
 
 #    source_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/thermal_noise_traces/complete_sim_traces_set_v0.2_no_system_response_measured_electronic_noise_new_impedance_mismatch_antenna_v4/digitizer_v2"
 #    save_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/average_ft/complete_sim_average_ft_set_v0.2_no_system_response_measured_electronic_noise_new_impedance_mismatch_antenna_v4/digitizer_v2"
+
+#    source_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/thermal_noise_traces/default/digitizer_v2"
+#    save_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/average_ft/default/digitizer_v2"
     
-    source_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/thermal_noise_traces/galaxy_model_variation/lfss"
-    save_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/average_ft/galaxy_model_variation/lfss"
+#    source_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/thermal_noise_traces/galaxy_model_variation/lfss"
+#    save_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/average_ft/galaxy_model_variation/lfss"
 
-#    source_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/thermal_noise_traces/antenna_model_variations/vpol_v3_shift_{args.index}_MHz"
-#    save_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/average_ft/antenna_model_variations/vpol_v3_shift_{args.index}_MHz"
+#    source_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/thermal_noise_traces/antenna_model_variations/vpol_v4_shift_{args.index}MHz"
+#    save_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/average_ft/antenna_model_variations/vpol_v4_shift_{args.index}MHz"
+
+#    source_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/thermal_noise_traces/default/digitizer_v2/station{args.station}/run{args.index}"
+#    save_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/average_ft/default_per_run/digitizer_v2/run{args.index}"
+
+    source_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/thermal_noise_traces/electronic_noise_temp_variation/digitizer_v2"
+    save_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/average_ft/electronic_noise_temp_variation/digitizer_v2"
+
+#    source_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/thermal_noise_traces/antenna_model_variations/vpol_v4_n1.{args.index}0"
+#    save_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/average_ft/antenna_model_variations/vpol_v4_n1.{args.index}0"
+
+
+    print(source_dir)
+
+    # PER RUN SETUP
+    # ------------------------------------------------
+#    config_path = glob.glob(os.path.join(source_dir, "..", "config*.json"))[0]
+#    with open(config_path, "r") as file:
+#        config = json.load(file)
+#
+#    channel_ids = config["channels_to_include"]
+
+
+#    sim_components = [
+#            glob.glob(f"{source_dir}/events_ice_batch*.nur"),
+#            glob.glob(f"{source_dir}/events_electronic_batch*.nur"),
+#            glob.glob(f"{source_dir}/events_galactic_batch*.nur"),
+#            ]
 
 
 
+    # GLOBAL SETUP
+    # -----------------------------------------------
     config_path = glob.glob(os.path.join(source_dir, f"station{args.station}", "config*.json"))[0]
     with open(config_path, "r") as file:
         config = json.load(file)
 
     channel_ids = config["channels_to_include"]
 
-
     sim_components = [
             glob.glob(f"{source_dir}/station{station_id}/run*/events_ice_batch*.nur"),
             glob.glob(f"{source_dir}/station{station_id}/run*/events_electronic_batch*.nur"),
             glob.glob(f"{source_dir}/station{station_id}/run*/events_galactic_batch*.nur"),
             ]
-
-
 
     sim_components = np.array([natsorted(comp) for comp in sim_components]).T
     if test:
