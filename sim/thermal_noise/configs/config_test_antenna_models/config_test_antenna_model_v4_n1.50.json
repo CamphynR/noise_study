@@ -69,7 +69,7 @@
     },
 
     "antenna_models" : {
-        "VPol" : "RNOG_vpol_v4_final_IGLU_n1.50",
+        "VPol" : "RNOG_vpol_v4_final_n1.50",
         "HPol" : "RNOG_hpol_v4_8inch_center_n1.74",
         "LPDA" : "createLPDA_100MHz_InfFirn_n1.4"}
 

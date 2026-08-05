@@ -14,7 +14,7 @@ from NuRadioReco.utilities import units
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--season", type=int, default=2024)
+    parser.add_argument("--season", default=2023)
     args = parser.parse_args()
 
     # DISCLAIMER WE DISTINGUISH BETWEEN OLD AND NEW DAQS, ONLY APPLICABLE FOR 2024
@@ -25,8 +25,13 @@ if __name__ == "__main__":
 
     known_broken_channels = known_broken_channels[str(args.season)]
 
+    if args.season == "2024_radiant_v2":
+        season_int = 2024
+    else:
+        season_int = int(args.season)
+
     # SETTINGS
-    station_ids = [11, 12, 13, 21, 23, 24]
+    station_ids = [11, 12, 13, 21, 22, 23, 24]
     stations_new_daq = [11, 12, 13, 23]
     stations_old_daq = [21, 22, 24]
 
@@ -34,17 +39,20 @@ if __name__ == "__main__":
     hpols = [4, 8, 11, 21]
     lpda_up = [13, 16, 19]
     lpda_down = [12, 14, 15, 17, 18, 20]
-    antenna_colors = ["pink", "blue", "indigo", "gray"]
+
+    plt.style.use("astroparticle_physics")
+    colors_style = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+
+    antenna_colors = [colors_style[0], colors_style[2], colors_style[4], colors_style[3]]
     antenna_type_names = ["vpols", "hpols", "lpda up", "lpda down"]
 
-    plt.style.use("retro")
     marker_styles = ["o", "s", "p", "x", "*", "8", "2", "^", "D", ".", "v"]
     color_styles = ["green", "blue", "red", "orange", "cyan", "gold", "black", "purple", "gray", "navy"]
     markers = {}
     colors = {}
     style_index = 0
 
-    figname = f"figures/calibrated_gain_summaries/response_template_summary_season{args.season}.pdf"
+    figname = f"figures/overviews/response_template_summary_season{args.season}.pdf"
     pdf = PdfPages(figname)
 
 
@@ -163,7 +171,8 @@ if __name__ == "__main__":
                 
                     template_used = template == calibration["best_fit_template"][channel_id]
                     template_counts[channel_id] += template_used
-            ax.scatter(channel_ids, template_counts, s=80,
+            mask = np.nonzero(template_counts)
+            ax.scatter(channel_ids[mask], template_counts[mask], s=80,
                        marker=markers[template], color=colors[template],
                        label = f"{template}")
 
@@ -172,7 +181,7 @@ if __name__ == "__main__":
         ax.set_xticklabels(channel_ids, rotation=-90, size=12)
         antenna_legend_elements = []
         for j, antenna_type in enumerate([vpols, hpols, lpda_up, lpda_down]):
-            ax.bar(antenna_type, 6 * np.ones_like(antenna_type),
+            ax.bar(antenna_type, len(station_ids) * np.ones_like(antenna_type),
                    width=1.,
                    color=antenna_colors[j],
                    alpha=0.4,
@@ -180,9 +189,10 @@ if __name__ == "__main__":
             antenna_legend_elements.append(Patch(facecolor=antenna_colors[j],
                                                  label=antenna_type_names[j]))
         ax.set_xlabel("Channel")
-        ax.set_ylabel("# uses")
-        antenna_type_legend = plt.legend(handles=antenna_legend_elements,
-                          loc="lower left", bbox_to_anchor=(1., 0.))
+        ax.set_ylabel("counts")
+        antenna_type_legend = fig.legend(handles=antenna_legend_elements,
+                          loc="lower center", bbox_to_anchor=(0.5, 1.01),
+                                         ncols=4)
         ax.legend(loc="upper left", bbox_to_anchor=(1., 1.))
         ax.add_artist(antenna_type_legend)
         fig.tight_layout()

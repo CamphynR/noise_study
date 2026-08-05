@@ -1,4 +1,4 @@
-{   "11" : [{"date" : "2024-07-25",
+{   "11" : [{"date" : "2024-06-25",
             "comment" : "New instrument box and power system, see station sheet"}],
     "12" : [{"date" : "2024-06-26",
             "comment" : "New Instrument box, see station sheet (internal temperature shows dip in grafana on this date"},

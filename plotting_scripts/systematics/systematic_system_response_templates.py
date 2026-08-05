@@ -181,7 +181,7 @@ if __name__ == "__main__":
 
 
 
-    plt.style.use("retro")
+    plt.style.use("astroparticle_physics")
     pdf_path = f"figures/fitting_tests/effect_system_response_template_season{season}_all_stations_systematics.pdf"
     pdf = PdfPages(pdf_path)
 
@@ -213,6 +213,144 @@ if __name__ == "__main__":
 
 
     pdf_path = f"figures/fitting_tests/effect_system_response_template_season{season}_all_stations_systematics_gof.pdf"
+    pdf = PdfPages(pdf_path)
+
+    for i, antenna_type in enumerate(channel_groups.keys()):
+        fig, ax = plt.subplots()
+        color = (0.8, 0.2, 0.2)
+        ax.hist(gof[i],
+                histtype="stepfilled",
+                facecolor=(*color, 0.5),
+                edgecolor=(*color, 1.),
+                lw=2.,
+                label="all keys")
+        color = (0.2, 0.2, 0.8)
+        ax.hist(gof_best_fit[i],
+                histtype="stepfilled",
+                facecolor=(*color, 0.5),
+                edgecolor=(*color, 1.),
+                lw=2.,
+                label="best_fit")
+        xlabel = "goodness of fit (integrated difference)"
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel("Counts")
+        ax.legend()
+        fig.suptitle(antenna_type)
+
+        fig.tight_layout()
+        fig.savefig(pdf, format="pdf")
+        plt.close(fig)
+
+    pdf.close()
+
+
+
+    # TESTING FOR ONLY SPECIFIC CHANNELS
+
+    channel_groups = {
+            "PA" : [0, 1, 2, 3],
+            "helper" : [5, 6, 7, 9, 10, 22, 23],
+            "LPDA" : [12, 13, 14, 15, 16, 17, 18, 19, 20]
+            }
+
+    antenna_types_test = {
+            "PA" : ["ch2", "ch2_6dB"],
+            "helper" : ["ch9_6dB", "v2_ch11"],
+            "LPDA" :  ["surface_query", "v2_ch13"]
+            }
+
+
+    channel_groups_stations = []
+    for station_id in station_ids:
+        channel_groups_tmp = copy.deepcopy(channel_groups)
+        for key, ch_list in channel_groups.items():
+            for ch_id in ch_list:
+                if ch_id in known_broken_channels[str(season)][str(station_id)]:
+                    channel_groups_tmp[key].remove(ch_id)
+        channel_groups_stations.append(channel_groups_tmp)
+
+
+
+    deviation_from_best_fit = []
+    gof = []
+    gof_best_fit = []
+    for antenna_type in channel_groups.keys():
+        deviation_antenna_type = []
+        gof_antenna_type = []
+        gof_best_fit_antenna_type = []
+        for station_idx, station_id in enumerate(station_ids):
+            for channel_id in channel_groups_stations[station_idx][antenna_type]:
+                gain_best_fit = calibration[station_idx]["best_fit"]["gain"][channel_id]
+                if gain_in_dB:
+                    gain_best_fit = convert_to_db(gain_best_fit)
+                for key in antenna_types_test[antenna_type]:
+                    if key == calibration[station_idx]["best_fit"]["best_fit_template"][channel_id]:
+                        gof_tmp = integral_difference(data[station_idx]["best_fit"]["frequencies"],
+                                                      data[station_idx]["best_fit"]["data"][channel_id],
+                                                      data[station_idx][key]["sim"][channel_id],
+                                                      fit_evaluation_range
+                                                      )
+                        gof_best_fit_antenna_type.append(gof_tmp)
+                        continue
+                    if channel_id in deep_channels and key in surface_keys:
+                        continue
+                    if channel_id in surface_channels and key in deep_keys:
+                        continue
+
+
+                    gof_tmp = integral_difference(data[station_idx]["best_fit"]["frequencies"],
+                                                  data[station_idx]["best_fit"]["data"][channel_id],
+                                                  data[station_idx][key]["sim"][channel_id],
+                                                  fit_evaluation_range
+                                                  )
+                    gof_antenna_type.append(gof_tmp)
+
+
+                    
+                    gain_tmpl = calibration[station_idx][key]["gain"][channel_id]
+                    if gain_in_dB:
+                        gain_tmpl = convert_to_db(gain_tmpl)
+
+                    deviation_tmp = np.abs(gain_best_fit - gain_tmpl)
+                    if use_relative_difference:
+                        deviation_tmp = (deviation_tmp/gain_best_fit) * 100
+                    deviation_antenna_type.append(deviation_tmp)
+        gof.append(gof_antenna_type)
+        gof_best_fit.append(gof_best_fit_antenna_type)
+        deviation_from_best_fit.append(deviation_antenna_type)
+
+
+    pdf_path = f"figures/fitting_tests/effect_system_response_template_season{season}_all_stations_systematics_limited_keys.pdf"
+    pdf = PdfPages(pdf_path)
+
+    for i, antenna_type in enumerate(channel_groups.keys()):
+        fig, ax = plt.subplots()
+        color = (0.8, 0.2, 0.2)
+        ax.hist(np.abs(deviation_from_best_fit[i]),
+                histtype="stepfilled",
+                facecolor=(*color, 0.5),
+                edgecolor=(*color, 1.),
+                lw=2.)
+        xlabel = "Deviation from best fit G"
+        if use_relative_difference:
+            xlabel += " /%"
+        elif gain_in_dB:
+            xlabel += " /dB"
+        else:
+            xlabel += " /amplitude"
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel("Counts")
+        fig.suptitle(antenna_type)
+
+        fig.tight_layout()
+        fig.savefig(pdf, format="pdf")
+        plt.close(fig)
+
+    pdf.close()
+
+
+
+    pdf_path = f"figures/fitting_tests/effect_system_response_template_season{season}_all_stations_systematics_limited_keys_gof.pdf"
     pdf = PdfPages(pdf_path)
 
     for i, antenna_type in enumerate(channel_groups.keys()):

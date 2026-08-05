@@ -45,6 +45,7 @@ from main_parser_functions import parse_data, functions
 logging.basicConfig(level = logging.WARNING)
 
 
+
 class NpEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, np.integer):
@@ -197,8 +198,25 @@ if __name__ == "__main__":
         data_dir = args.data_dir
 
 
+    # TODO clean this up
     if args.run is not None:
         root_dirs = glob.glob(f"{data_dir}/station{args.station}/run{args.run}/")
+        run_files = glob.glob(f"{data_dir}/station{args.station}/run{args.run}/*")
+        if np.any([run_file.endswith(".nur") for run_file in run_files]):
+            config["simulation"] = True
+            sim_config_path = glob.glob(f"{data_dir}/station{args.station}/config*")[0]
+            with open(sim_config_path, "r") as sim_config_file:
+                sim_config = json.load(sim_config_file)
+            config.update(sim_config)
+            
+            noise_sources = config["noise_sources"]
+            root_dirs_list = []
+            for noise_source in noise_sources:
+                root_dirs_tmp = [glob.glob(f"{root_dir}/events_{noise_source}_batch*")[0] for root_dir in root_dirs]
+                root_dirs_list.append(root_dirs_tmp)
+            if config["include_sum"]:
+                root_dirs_tmp = [glob.glob(f"{root_dir}/events_batch*")[0] for root_dir in root_dirs]
+                root_dirs_list.append(root_dirs_tmp)
     else:
         root_dirs = glob.glob(f"{data_dir}/station{args.station}/run*")
         print(root_dirs)

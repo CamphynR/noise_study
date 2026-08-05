@@ -191,9 +191,10 @@ if __name__ == "__main__":
     pol_idx = 0 if pol=="theta" else 1
     for i, VELs in enumerate(VEL_models):
         # NuRadio default
-        if args.antenna_models[i] == "RNOG_vpol_v3_5inch_center_n1.74":
+        antenna_defaults = ["RNOG_vpol_v3_5inch_center_n1.74", "RNOG_hpol_v5_8inch_center_n1.728"]
+        if args.antenna_models[i] in antenna_defaults:
             ls = "dashed"
-            lw = 1.5
+            lw = 2.
         else:
             ls = None
             lw = 1.
@@ -206,7 +207,7 @@ if __name__ == "__main__":
 
     ax.set_xlabel("freq / MHz")
     ax.set_ylabel("VEL / m")
-    ax.legend()
+    ax.legend(loc="upper left", bbox_to_anchor=(1., 1.))
     ax.set_title("VEL comparisons")
     ax.set_xlim(0., 1200.)
     fig.savefig(f"figures/tests/antenna_vel_comparison", bbox_inches="tight")
@@ -250,7 +251,8 @@ if __name__ == "__main__":
 
     ax.set_xlabel("freq / MHz")
     ax.set_ylabel("VEL / m")
-    ax.legend()
+#    ax.legend()
+    ax.legend(loc="upper left", bbox_to_anchor=(1., 1.))
     ax.set_title("VEL comparisons")
     ax.set_xlim(0., 1200.)
     fig.savefig(f"figures/tests/antenna_vel_comparison_zeniths", bbox_inches="tight")

@@ -1,3 +1,4 @@
+from astropy.time import Time
 import json
 import numpy as np
 import os
@@ -5,11 +6,13 @@ from pathlib import Path
 import pickle
 from scipy import constants
 
+from NuRadioReco.detector.RNO_G.rnog_detector import Detector
 from NuRadioReco.framework.event import Event
 from NuRadioReco.framework.station import Station
 from NuRadioReco.framework.channel import Channel
 import NuRadioReco.modules.channelBandPassFilter
 from NuRadioReco.modules.io.eventReader import eventReader
+from NuRadioReco.modules.RNO_G.dataProviderRNOG import dataProviderRNOG
 from NuRadioReco.utilities import units
 import NuRadioMC.utilities.medium as medium
 
@@ -80,7 +83,7 @@ def convert_to_db(gain):
     return db
 
 def convert_error_to_db(gain_error, gain):
-    db_error = 20 * 1/(np.log(10) * gain) * gain_error
+    db_error = (20/(np.log(10) * gain)) * gain_error
     return db_error
 
 def reduce_by_db(variable, db):
@@ -155,6 +158,30 @@ def read_freq_spectrum_from_nur(files : list, return_phase=False):
         spec.append(spec_channel)
     return np.array(spec)
 
+
+def read_freq_spectrum_from_root(files, station_id=11, channel_ids=np.arange(24), backend="uproot", trigger="FORCE"):
+    det=Detector(select_stations=station_id)
+    det_time = Time("2023-08-01")
+    det.update(det_time)
+    reader = dataProviderRNOG()
+    reader.begin(files, det=det,
+                 reader_kwargs=dict(
+                     select_triggers="FORCE",
+                     mattak_kwargs=dict(
+                        backend=backend)))
+    spectra = []
+    for event in reader.run():
+        station = event.get_station()
+        spectra_ch = []
+        for channel_id in channel_ids:
+            channel = station.get_channel(channel_id)
+            frequencies = channel.get_frequencies()
+            spectrum = channel.get_frequency_spectrum()
+            spectra_ch.append(spectrum)
+        spectra.append(spectra_ch)
+
+    spectra = np.array(spectra)
+    return spectra
 
 
 

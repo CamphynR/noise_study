@@ -1,8 +1,3 @@
-import sys
-# temporary untill versions get reconciled on the remote
-sys.path.remove("/user/rcamphyn/software/NuRadioMC")
-sys.path.append("/user/rcamphyn/software/NuRadioMC_change_hardwareDB")
-
 import argparse
 from astropy.time import Time
 import copy
@@ -24,7 +19,7 @@ from NuRadioReco.framework.channel import Channel
 from NuRadioReco.modules.channelBandPassFilter import channelBandPassFilter
 from NuRadioReco.modules.channelGalacticNoiseAdder import channelGalacticNoiseAdder
 from NuRadioReco.modules.channelGenericNoiseAdder import channelGenericNoiseAdder
-from NuRadioReco.modules.channelThermalNoiseAdder import channelThermalNoiseAdder
+from NuRadioReco.modules.channelIceThermalNoiseAdder import channelIceThermalNoiseAdder
 from NuRadioReco.modules.io.eventReader import eventReader
 from NuRadioReco.modules.RNO_G.hardwareResponseIncorporator import hardwareResponseIncorporator
 from NuRadioReco.utilities import units, fft
@@ -62,7 +57,7 @@ def generate_event(station_id, frequencies, channel_ids):
 
 def initialize_ice_adder():
     eff_temp_dir = "sim/library/eff_temperatures"
-    ice_adder = channelThermalNoiseAdder()
+    ice_adder = channelIceThermalNoiseAdder()
     ice_adder.begin(sim_library_dir=eff_temp_dir)
     return ice_adder
 
@@ -131,7 +126,7 @@ if __name__ == "__main__":
     parser.add_argument("--station", type=int)
     args = parser.parse_args()
 
-    config_path = "sim/thermal_noise/config_efields.json"
+    config_path = "sim/thermal_noise/configs/config_sim.json"
     config = read_config(config_path)
 
     season = args.season
@@ -145,10 +140,10 @@ if __name__ == "__main__":
     frequencies = fft.freqs(nr_samples, sampling_rate) 
 
     
-    calibration_result_path = f"/user/rcamphyn/noise_study/absolute_amplitude_results/absolute_amplitude_calibration_season2023_st{args.station}_best_fit.csv"
+    calibration_result_path = f"/user/rcamphyn/noise_study/absolute_amplitude_results/season2023/station{args.station}/default/absolute_amplitude_calibration_season2023_st{args.station}_best_fit.csv"
     calibration_results = pd.read_csv(calibration_result_path, index_col=None)
-    system_response_paths = ["sim/library/deep_templates_combined.json",
-                             "sim/library/v2_v3_surface_impulse_responses.json"]
+    system_response_paths = ["sim/library/system_response_templates_deep.json",
+                             "sim/library/system_response_templates_surface.json"]
 
 
 # -----BANDPASS-------
@@ -158,15 +153,42 @@ if __name__ == "__main__":
     filt = np.abs(filt)
 
 
+
+
+#------------DATA-------------
+
+
+    data_paths = natsorted(glob.glob(f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/data/vrms/complete_vrms_sets_v0.2/season{season}/station{station_id}/clean/average_vrms_run*.pickle"))
+
+    times = []
+    vrms = []
+    var_vrms = []
+    for pickle in data_paths:
+        rms_dict = read_pickle(pickle)
+        times.append(rms_dict["header"]["begin_time"].unix)
+        vrms.append(rms_dict["vrms"])
+        var_vrms.append(rms_dict["var_vrms"])
+    vrms = np.array(vrms).T
+    var_vrms = np.array(var_vrms).T
+
+    times = np.array(times)
+    times_date = [Time(t, format="unix").strftime("%Y-%b-%d") for t in times]
+
+
+
+
+
+
 # ----------SIMULATION--------------
 
     s_param_db_date = Time("2025-02-05", format="isot") 
     s_param_db = Detector(log_level=logging.WARNING,
-                          always_query_entire_description=True,
+#                          always_query_entire_description=True,
                           select_stations=station_id,
-                          database_connection="RNOG_test_public",
+#                          database_connection="RNOG_test_public",
                           database_time=s_param_db_date,
-                          database_name="RNOG_test")
+#                          database_name="RNOG_test",
+                          )
     s_param_db.update(Time("2023-08-01", format="isot"))
 #    s_param_response = np.array(
 #            [np.abs(s_param_db.get_signal_chain_response(station_id, c)(frequencies)) for c in channel_ids]
@@ -178,15 +200,6 @@ if __name__ == "__main__":
 
 
     cal_gain = calibration_results["gain"].to_numpy()
-    el_ampl = calibration_results["el_ampl"].to_numpy()
-    el_cst = calibration_results["el_cst"].to_numpy()
-    f0 = calibration_results["f0"].to_numpy()
-
-    electronic_weight_frequencies = np.tile(frequencies, (24, 1))
-    el_ampl = np.tile(el_ampl, (len(frequencies),1)).T
-    el_cst = np.tile(el_cst, (len(frequencies),1)).T
-    f0 = np.tile(f0, (len(frequencies),1)).T
-    electronic_weight = el_ampl * (electronic_weight_frequencies - f0) + el_cst
 
 
 
@@ -195,7 +208,9 @@ if __name__ == "__main__":
         calibration_response_helper = systemResponseTimeDomainIncorporator()
         calibration_response_helper.begin(det=0, response_path=system_response_paths,
                                    overwrite_key=calibration_results["best_fit_template"][channel_id])
-        calibration_response_tmp = cal_gain[channel_id] * calibration_response_helper.get_response(channel_id)["gain"](frequencies)
+        gain_template = calibration_response_helper.get_response(channel_id)["gain"](frequencies)
+        phase = calibration_response_helper.get_response(channel_id)["phase"](frequencies)
+        calibration_response_tmp = cal_gain[channel_id] * gain_template * np.exp(1j * phase)
         calibration_response.append(calibration_response_tmp)
 
     calibration_response = np.array(calibration_response)
@@ -203,9 +218,9 @@ if __name__ == "__main__":
 
 
     thermal_noise_trace_paths = [
-                                glob.glob(f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/thermal_noise_traces/complete_sim_traces_set_v0.2_no_system_response_measured_electronic_noise/{digitizer}/station{station_id}/run*/events_ice_batch*.nur"),
-                                glob.glob(f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/thermal_noise_traces/complete_sim_traces_set_v0.2_no_system_response_measured_electronic_noise/{digitizer}/station{station_id}/run*/events_electronic_batch*.nur"),
-                                glob.glob(f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/thermal_noise_traces/complete_sim_traces_set_v0.2_no_system_response_measured_electronic_noise/{digitizer}/station{station_id}/run*/events_galactic_batch*.nur")
+                                glob.glob(f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/thermal_noise_traces/default/{digitizer}/station{station_id}/run*/events_ice_batch*.nur"),
+                                glob.glob(f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/thermal_noise_traces/default/{digitizer}/station{station_id}/run*/events_electronic_batch*.nur"),
+                                glob.glob(f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/simulations/thermal_noise_traces/default/{digitizer}/station{station_id}/run*/events_galactic_batch*.nur")
             ]
     thermal_noise_trace_paths = np.array(thermal_noise_trace_paths).T
 
@@ -213,22 +228,9 @@ if __name__ == "__main__":
     vrms_calibration = []
     for event_batch in thermal_noise_trace_paths[:1]:
         spec_per_batch = []
-        # 0 ice 1 electronic 2 galactic
-
-        ice_mean = np.zeros_like(frequencies)
-        el_mean = np.zeros_like(frequencies)
-        gal_mean = np.zeros_like(frequencies)
-
-        ice_el_cross = np.zeros_like(frequencies)
-        ice_gal_cross = np.zeros_like(frequencies)
-        el_gal_cross = np.zeros_like(frequencies)
-
 
         for i, component in enumerate(event_batch):
             spec = read_freq_spectrum_from_nur(component, return_phase=True)
-            if i==1:
-                # electronic noise
-                spec *= electronic_weight
             spec_per_batch.append(spec)
        
         
@@ -302,24 +304,6 @@ if __name__ == "__main__":
 
 
 
-#------------DATA-------------
-
-
-    data_paths = natsorted(glob.glob(f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/data/vrms/complete_vrms_sets_v0.1/season{season}/station{station_id}/clean/average_vrms_run*.pickle"))
-
-    times = []
-    vrms = []
-    var_vrms = []
-    for pickle in data_paths:
-        rms_dict = read_pickle(pickle)
-        times.append(rms_dict["header"]["begin_time"].unix)
-        vrms.append(rms_dict["vrms"])
-        var_vrms.append(rms_dict["var_vrms"])
-    vrms = np.array(vrms).T
-    var_vrms = np.array(var_vrms).T
-
-    times = np.array(times)[:, 0]
-    times_date = [Time(t, format="unix").strftime("%Y-%b-%d") for t in times]
 
 
     
@@ -355,21 +339,38 @@ if __name__ == "__main__":
 #-------------------- PLOTS FOR PAPER ------------------
 
     plt.style.use("astroparticle_physics")
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+    nr_ticks = 7
    
     channels_on_plot = [0, 4, 13, 17]
     fig, axs = plt.subplots(2, 2, sharex=True, figsize = (15, 10))
     axs = np.ndarray.flatten(axs)
     for ax_index, ax in enumerate(axs):
         channel_on_ax = channels_on_plot[ax_index]
-        ax.errorbar(times, vrms[channel_on_ax]/units.mV, yerr=var_vrms[channel_on_ax]/units.mV, marker="o", label="Vrms", ls=None)
-        ax.hlines(vrms_calibration[channel_on_ax]/units.mV, xmin=times[0], xmax=times[-1], label = "calibrated\nresponse", colors="red")
-        ax.hlines(vrms_s_param[channel_on_ax]/units.mV, xmin=times[0], xmax=times[-1], label = "combined\nS parameter\nresponse", colors="blue")
+        overflow = [False for _ in times]
+        for vrms_i, vrms_run in enumerate(vrms[channel_on_ax]):
+            if np.abs(vrms_run - np.mean(vrms[channel_on_ax]))/np.mean(vrms[channel_on_ax]) > 0.5:
+                overflow[vrms_i] = True
+        overflow = np.array(overflow)
+        ax.errorbar(times[~overflow], vrms[channel_on_ax][~overflow]/units.mV, yerr=var_vrms[channel_on_ax][~overflow]/units.mV, marker="o", label="Vrms", ls=None)
+#        ax.errorbar(times[overflow], vrms[channel_on_ax][overflow]/units.mV, yerr=var_vrms[channel_on_ax][overflow]/units.mV, marker="s", label="overflow", ls=None, color="red")
+        ax.hlines(vrms_calibration[channel_on_ax]/units.mV,
+                  xmin=times[0], xmax=times[-1],
+                  lw=3.,
+                  label = "calibrated\nresponse",
+                  colors=colors[2])
+        ax.hlines(vrms_s_param[channel_on_ax]/units.mV,
+                  xmin=times[0], xmax=times[-1],
+                  lw=3.,
+                  ls="dashed",
+                  label = "combined\nS parameter\nresponse",
+                  colors=colors[3])
 
         ax.set_title(f"Channel {channel_on_ax}")
         if ax_index > 1:
             ax.set_xlabel("date")
         ax.set_ylabel(r"$V_{rms}$ / mV")
-        dt = int(len(times)/10)
+        dt = len(times)//nr_ticks
         ax.set_xticks(times[::dt], labels=times_date[::dt], rotation=-45, ha="left", rotation_mode="anchor")
         ax.minorticks_on()
         ax.grid(True, which="minor", ls="dashed", color="gray", alpha=0.4)

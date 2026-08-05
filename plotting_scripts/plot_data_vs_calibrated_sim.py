@@ -3,6 +3,7 @@ import json
 from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.pyplot as plt
 import numpy as np
+import pickle
 import os
 import pandas as pd
 
@@ -12,7 +13,7 @@ import NuRadioReco.utilities.signal_processing as signal
 from NuRadioReco.utilities import units
 
 from modules.systemResponseTimeDomainIncorporator import systemResponseTimeDomainIncorporator
-from utilities.utility_functions import read_freq_spectrum_from_pickle, read_pickle
+from utilities.utility_functions import read_freq_spectrum_from_pickle, read_pickle, convert_to_db
 
 
 
@@ -86,9 +87,13 @@ def sim_no_weight(sim, calibration, channel_ids=np.arange(24)):
 #        electronic_spectra.append(calibration["gain"][channel_id] * electronic_spectrum)
 #        galactic_spectra.append(calibration["gain"][channel_id] * galactic_spectrum)
 
-        ice_spectra.append(calibration["gain"][channel_id] * np.abs(sim["ice"]["spectrum"][channel_id]))
-        electronic_spectra.append(calibration["gain"][channel_id] * np.abs(sim["electronic"]["spectrum"][channel_id]))
-        galactic_spectra.append(calibration["gain"][channel_id] * np.abs(sim["galactic"]["spectrum"][channel_id]))
+#        ice_spectra.append(calibration["gain"][channel_id] * np.abs(sim["ice"]["spectrum"][channel_id]))
+#        electronic_spectra.append(calibration["gain"][channel_id] * np.abs(sim["electronic"]["spectrum"][channel_id]))
+#        galactic_spectra.append(calibration["gain"][channel_id] * np.abs(sim["galactic"]["spectrum"][channel_id]))
+
+        ice_spectra.append(calibration["gain"][channel_id] * response["gain"](frequencies) * np.abs(sim["ice"]["spectrum"][channel_id]))
+        electronic_spectra.append(calibration["gain"][channel_id] * response["gain"](frequencies) * np.abs(sim["electronic"]["spectrum"][channel_id]))
+        galactic_spectra.append(calibration["gain"][channel_id] * response["gain"](frequencies) * np.abs(sim["galactic"]["spectrum"][channel_id]))
 
         response_template_names.append(calibration["best_fit_template"][channel_id])
         response_templates.append(response["gain"](frequencies))
@@ -112,7 +117,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
 
-    season = 2023
+    season = 2022
     if season < 2024:
         digitizer_version = 2
 
@@ -124,7 +129,7 @@ if __name__ == "__main__":
     channel_ids  = np.arange(24)
     if args.debug:
         channel_ids = [0, 4, 12, 13]
-    channel_ids = [0, 4, 7, 12, 13, 23]
+#    channel_ids = [0, 4, 7, 12, 13, 23]
 
     calibration_dir = "/user/rcamphyn/noise_study/absolute_amplitude_results"
     calibration_name_base = f"absolute_amplitude_calibration_season{season}_st{station}"
@@ -142,7 +147,12 @@ if __name__ == "__main__":
     calibration = pd.read_csv(calibration_path)
 
 
+    calibration_path_data = os.path.join(calibration_dir,"season" + str(season), "station" + str(station), calibration_type, f"absolute_amplitude_calibration_season{season}_st{station}_plot_data.pickle")
 
+
+
+    with open(calibration_path_data, "rb") as file:
+        plot_data = pickle.load(file)
 
 
 
@@ -170,7 +180,7 @@ if __name__ == "__main__":
 
     # with measured electronic noise
     sim_dir = os.path.join(sim_dir_base, 
-                                                     "complete_sim_average_ft_set_v0.2_no_system_response_measured_electronic_noise_new_impedance_mismatch",
+                                                     "default",
                                                      f"digitizer_v{digitizer_version}"
                                                      )
 
@@ -226,15 +236,17 @@ if __name__ == "__main__":
     pdf_name = f"figures/calibration_with_components_season{season}_st{station}.pdf"
     pdf = PdfPages(pdf_name)
 
+    lw = 2.
     for i , channel_id in enumerate(channel_ids):
-        fig, ax = plt.subplots(1, 1, figsize=(15, 10))
+        fig, ax = plt.subplots(1, 1, figsize=(12, 8))
         ax.plot(frequencies_data, spectra_data[channel_id],
-                          label="data",
+                          label="Data",
+                lw=lw
                 )
         ax.plot(frequencies_data,
-                sim_result[i],
-                label=f"Final fit",
-                color="blue"
+                plot_data["sim"][channel_id],
+                label=f"Simulation (G : {convert_to_db(calibration['gain'][channel_id]):.2f} dB)",
+                lw=lw
                           )
 
 
@@ -243,21 +255,24 @@ if __name__ == "__main__":
         if args.include_components:
             ax.plot(frequencies_data,
                               bandpass * sim_components["ice"][i],
-                              label=f"ice\n(scaled by gain)",
+                              label=f"Ice\n(scaled by gain)",
                     ls="dashed",
-                    color="red"
+                    color="red",
+                    lw=lw
                               )
             ax.plot(frequencies_data,
                               bandpass * sim_components["electronic"][i],
-                              label=f"electronic\n(scaled by gain)",
+                              label=f"Electronic\n(scaled by gain)",
                     ls="dashed",
-                    color="green"
+                    color="green",
+                    lw=lw
                               )
             ax.plot(frequencies_data,
                               bandpass * sim_components["galactic"][i],
-                              label=f"galactic\n(scaled by gain)",
+                              label=f"Galactic\n(scaled by gain)",
                     ls="dashed",
-                    color="deeppink"
+                    color="deeppink",
+                    lw=lw
                               )
 
 
@@ -279,12 +294,79 @@ if __name__ == "__main__":
 
 
         ax.set_xlim(0, 1.)
-        ax.set_xlabel("frequency / GHz")
-        ax.set_ylabel("amplitude / V")
+        ax.set_xlabel("frequency / GHz", size="x-large")
+        ax.set_ylabel("amplitude / V", size="x-large")
+        ax.set_title(f"channel {channel_id}", size="x-large")
+        ax.tick_params("both", labelsize="large")
         ax.legend(loc="upper right", fontsize=21)
-        fig.suptitle(f"channel {channel_id}")
+#        fig.suptitle(f"channel {channel_id}")
         fig.tight_layout()
         fig.savefig(pdf, format="pdf")
         plt.close(fig)
 
     pdf.close()
+
+
+
+
+    antenna_types = {"VPol" : 0,
+                     "HPol" : 4,
+                     "LPDA up" : 13,
+                     "LPDA down": 12}
+
+    plt.style.use("astroparticle_physics")
+
+
+    fig, axs = plt.subplots(2, 2, sharex=True, figsize=(12, 8))
+    axs = np.ndarray.flatten(axs)
+
+    for i, (channel_type, channel_id) in enumerate(antenna_types.items()):
+        axs[i].plot(frequencies_data, spectra_data[channel_id],
+                          label="Data",
+                lw=3.
+                )
+        axs[i].plot(frequencies_data,
+                plot_data["sim"][channel_id],
+                label=f"Simulation",
+                lw=lw
+                          )
+        if args.include_components:
+            axs[i].plot(frequencies_data,
+                              bandpass * sim_components["ice"][channel_ids.index(channel_id)],
+                              label=f"Ice",
+                    ls="dashed",
+                    lw=lw
+                              )
+            axs[i].plot(frequencies_data,
+                              bandpass * sim_components["electronic"][channel_ids.index(channel_id)],
+                              label=f"Electronic",
+                    ls="dotted",
+                    lw=lw
+                              )
+            axs[i].plot(frequencies_data,
+                              bandpass * sim_components["galactic"][channel_ids.index(channel_id)],
+                              label=f"Galactic",
+                    ls="dashdot",
+                    lw=lw
+                              )
+        axs[i].text(0.95, 0.95, channel_type,
+                    fontsize="large",
+                        bbox={"boxstyle":"round",
+                              "facecolor":"white"}, 
+                        transform=axs[i].transAxes, ha="right", va="top")
+        if i == len(antenna_types)-1:
+            handles, labels = axs[i].get_legend_handles_labels()
+            fig.legend(handles, labels, loc='lower center', ncols=5, fontsize="large", bbox_to_anchor=(0.5, 1.005))
+
+        axs[i].axvspan(0, 0.15, alpha=0.3, color="gray")
+        axs[i].axvspan(0.6, 1., alpha=0.3, color="gray")
+
+
+    for ax in axs:
+        ax.set_xlim(0., 1.)
+
+    fig.text(0.5, -0.005, 'frequency / GHz', ha='center', size="x-large")
+    fig.text(-0.005, 0.5, 'Amplitude / V/GHz', va='center', rotation='vertical', size="x-large")
+    fig.tight_layout()
+    fig.savefig(f"figures/paper/calibration_with_components_season{season}_st{station}.png", bbox_inches="tight")
+

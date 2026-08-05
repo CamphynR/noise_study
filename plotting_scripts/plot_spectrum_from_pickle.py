@@ -24,7 +24,7 @@ if __name__ == '__main__':
                         help="also plot variation on the spectrum")
     args = parser.parse_args()
     
-    if args.labels is None:
+    if args.labels == ["auto"] or args.labels is None:
         labels = list(np.arange(len(args.pickle)))
     else:
         labels = args.labels
@@ -42,20 +42,20 @@ if __name__ == '__main__':
             nr_channels = len(frequency_spectrum)
             std_on_mean_frequency_spectrum = np.sqrt(var_frequency_spectrum)
 #            std_frequency_spectrum = np.sqrt(var_frequency_spectrum)
-            if args.labels is None:
+            if args.labels == "auto":
                 try:
                     labels[i] = header["begin_time"][0].datetime.strftime("%B") #+ " - " + header["end_time"][0].datetime.strftime("%B")
 #                    labels[i] = pickle.split("run")[-1].split(".pickle")[0]
                 except:
                     labels[i] = Time(header["begin_time"], format="unix").strftime("%d %B")
+            elif args.labels is None:
+                labels[i] = None
             ax.plot(frequency, frequency_spectrum[channel_id], label = labels[i], lw=2.)
             if args.include_var:
                 ax.fill_between(frequency,
                                  frequency_spectrum[channel_id] - std_on_mean_frequency_spectrum[channel_id],
                                  frequency_spectrum[channel_id] + std_on_mean_frequency_spectrum[channel_id],
                                  alpha=0.5)
-            sampling_rate = 3.2 * units.GHz
-            trace_tmp = fft.freq2time(frequency_spectrum[channel_id], sampling_rate)
         if len(args.pickle) == 2:
             frequency_prev, frequency_spectrum_prev, var_frequency_spectrum_prev, header_prev = read_average_freq_spectrum_from_pickle(args.pickle[0])
             frequency_spectrum[frequency_spectrum==0] = 1e-9
