@@ -59,6 +59,23 @@ def parse_temperature_file(temp_path):
     return temp_interpolate
 
 
+
+def construct_gain_per_period(run_nrs, gains, stable_periods):
+    """
+    gains: list of gains, assumed to be gains of one season and one station
+    stable_periods: also assumed to be of one season one station
+    """
+
+    for channel_id, gains_ch in enumerate(gains):
+        stable_period_indices = np.where(np.isin(run_nrs, stable_periods[str(channel_id)]))[0]
+        gains_per_period_ch = np.split(gains_ch, stable_period_indices)
+        print(gains_per_period_ch)
+        print(gains_per_period_ch.shape)
+        exit()
+
+
+
+
     
 
 
@@ -69,13 +86,17 @@ if __name__ == "__main__":
     parser.add_argument("--fname_appendix", default=None)
     args = parser.parse_args()
     seasons = [2022, 2023, "2024_radiant_v2"]
-    station_ids = [11, 13, 23, 24]
+    station_ids = [24]
     channel_ids = list(np.arange(24))
 
     known_broken_channels_path = "configs/known_broken_channels.json"
     with open(known_broken_channels_path, "r") as file:
         known_broken_channels = json.load(file)
-    
+
+    stable_periods_path = "configs/run_gain_periods.json"
+    with open(stable_periods_path, "r") as file:
+        stable_periods_dict = json.load(file)
+   
 
     seasons_int = []
     for season in seasons:
@@ -155,6 +176,9 @@ if __name__ == "__main__":
                 gains_per_run[:, channel_id] -= gain_season[channel_id]
                 gains_per_run[:, channel_id] /= gain_season[channel_id]
             gains_all[seasons.index(season)][station_ids.index(station_id)] = gains_per_run
+
+            g = construct_gain_per_period(table_season_station["run"].to_numpy(), gains_per_run.T, stable_periods_dict[str(season)][str(station_id)])
+            exit()
     
 
     
