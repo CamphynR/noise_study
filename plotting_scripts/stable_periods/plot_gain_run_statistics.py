@@ -1,4 +1,5 @@
 import argparse
+import copy
 import json
 from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.pyplot as plt
@@ -66,6 +67,19 @@ def construct_dgains_sublist(gains, seasons_sub, station_ids_sub, channel_ids_su
 
 
 
+def outlier_condition(dg_min, threshold=1):
+    """
+    dg_min is the minimum of the difference between left and right neighbour of a run
+    assumed to already be in percentage
+    """
+    return dg_min > threshold
+
+
+
+def period_condition(dg, threshold=4):
+    return dg > threshold
+
+
 
 
 
@@ -73,7 +87,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--fname_appendix", default=None)
     args = parser.parse_args()
-    seasons = [2023]
+    seasons = [2022, 2023, "2024_radiant_v2"]
+    # seasons = [2023]
     season_ints = []
     for season in seasons:
         if season == "2024_radiant_v2":
@@ -121,8 +136,15 @@ if __name__ == "__main__":
     dgains_min = [[] for channel_id in channel_ids]
     dgains_all = []
     dgains_all_min = []
+
+    outlier_run_numbers = {}
+    outlier_run_numbers_idx = {}
     for season in seasons:
+        outlier_run_numbers[str(season)] = {}
+        outlier_run_numbers_idx[str(season)] = {}
         for station_id in station_ids:
+            outlier_run_numbers[str(season)][str(station_id)] = {}
+            outlier_run_numbers_idx[str(season)][str(station_id)] = {}
             # # seasonal calibration used for these runs per season
             # calibration_season_path = f"absolute_amplitude_results/season{seasons[0]}/station{station_id}/default/absolute_amplitude_calibration_season{seasons[0]}_st{station_id}_best_fit.csv"
             # calibration_season = pd.read_csv(calibration_season_path, index_col=0)
@@ -143,12 +165,27 @@ if __name__ == "__main__":
 
             gains_per_run = np.array([[cal_ch["gain"].value for cal_ch in cal_run["fit_results"]] for cal_run in cal_per_run["calibration"]])
             for channel_id in channel_ids:
+                outlier_run_numbers[str(season)][str(station_id)][str(channel_id)] = []
+                outlier_run_numbers_idx[str(season)][str(station_id)][str(channel_id)] = []
                 if channel_id in known_broken_channels[str(season)][str(station_id)]:
                     continue
                 dg_right = 100* np.abs(np.diff(gains_per_run.T[channel_ids.index(channel_id)])) / gains_per_run.T[channel_ids.index(channel_id)][:-1]
                 dg_left = 100* np.abs(np.diff(gains_per_run.T[channel_ids.index(channel_id)])) / gains_per_run.T[channel_ids.index(channel_id)][1:]
                 dg_min = np.min([dg_right[1:], dg_left[:-1]],
                                 axis=0)
+
+
+                # index 0 of dg_right corresponds to the right neighbour of run with index 0
+                # index 0 of dg_left corresponds to the left neighbour of run with index 1
+                # index 0 of dg_min corresponds to index 1 of the run numbers and hence also with index 1 of dg_right
+
+                for dg_i, dg_min_run in enumerate(dg_min):
+                    run_nr_i = dg_i + 1
+                    if outlier_condition(dg_min_run):
+                        outlier_run_numbers[str(season)][str(station_id)][str(channel_id)].append(int(run_numbers[run_nr_i]))
+                        outlier_run_numbers_idx[str(season)][str(station_id)][str(channel_id)].append(run_nr_i)
+
+                    
                     
 
                 dgains[channel_ids.index(channel_id)].extend(dg_right)
@@ -157,8 +194,69 @@ if __name__ == "__main__":
                 dgains_all_min.extend(dg_min)
 
 
+
+
+    period_run_numbers = {}
+    for season in seasons:
+        period_run_numbers[str(season)] = {}
+        for station_id in station_ids:
+            period_run_numbers[str(season)][str(station_id)] = {}
+            # # seasonal calibration used for these runs per season
+            # calibration_season_path = f"absolute_amplitude_results/season{seasons[0]}/station{station_id}/default/absolute_amplitude_calibration_season{seasons[0]}_st{station_id}_best_fit.csv"
+            # calibration_season = pd.read_csv(calibration_season_path, index_col=0)
+            # gain_season = calibration_season["gain"]
+
+            if season == "2024_radiant_v2" and station_id in [12, 21, 22]:
+                continue
+            cal_per_run_path = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/absolute_amplitude_results/season{season}/station{station_id}/slope_fixed_to_2023/season{season}_st{station_id}_all_runs_compiled_slope_fixed_to_2023.pickle"
+
+            with open(cal_per_run_path, "rb") as file:
+                cal_per_run = pickle.load(file)
+
+            # table_season = table[table["run"].isin(cal_per_run["run_nr"])]
+            # times.extend(table_season["time_start"])
+
+
+            run_numbers = np.array(cal_per_run["run_nr"])
+            gains_per_run = np.array([[cal_ch["gain"].value for cal_ch in cal_run["fit_results"]] for cal_run in cal_per_run["calibration"]])
+
+            for channel_id in channel_ids:
+
+                period_run_numbers[str(season)][str(station_id)][str(channel_id)] = []
+                if channel_id in known_broken_channels[str(season)][str(station_id)]:
+                    continue
+
+                outlier_runs_idxs = outlier_run_numbers_idx[str(season)][str(station_id)][str(channel_id)]
+                run_numbers_tmp = np.delete(copy.copy(run_numbers), outlier_runs_idxs)
+                gain_tmp = np.delete(copy.copy(gains_per_run.T[channel_ids.index(channel_id)]), outlier_runs_idxs)
+
+
+                dg_right = 100* np.abs(np.diff(gain_tmp)) / gain_tmp[:-1]
+
+
+                # index 0 of dg_right corresponds to the right neighbour of run with index 0
+                # index 0 of dg_left corresponds to the left neighbour of run with index 1
+                # index 0 of dg_min corresponds to index 1 of the run numbers and hence also with index 1 of dg_right
+
+                for dg_i, dg_right_tmp in enumerate(dg_right[1:]):
+                    run_nr_i = dg_i + 1
+                    if period_condition(dg_right_tmp):
+                        period_run_numbers[str(season)][str(station_id)][str(channel_id)].append(int(run_numbers_tmp[run_nr_i]))
+                    
+
+
+
     times = np.array(times)
 
+
+    outlier_path = "configs/run_gain_outliers.json"
+    with open(outlier_path, "w") as file:
+        json.dump(outlier_run_numbers, file)
+
+
+    period_path = "configs/run_gain_periods.json"
+    with open(period_path, "w") as file:
+        json.dump(period_run_numbers, file)
 
 
 

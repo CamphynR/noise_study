@@ -1,4 +1,5 @@
 import argparse
+import json
 from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.pyplot as plt
 from natsort import natsorted
@@ -139,19 +140,27 @@ def define_stable_periods(gains,
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("--station", "-s", type=int)
     parser.add_argument("--fname_appendix", default=None)
     args = parser.parse_args()
     seasons = [2023]
-    station_id = 11
+    season_ints = []
+    for season in seasons:
+        season_tmp = season
+        if season == "2024_radiant_v2":
+            season_tmp = 2024
+        season_ints.append(season_tmp)
+    station_id = args.station
     channel_ids = np.arange(24)
     plot_relative = False
-    
+
+
 
     rt = RunTable()
     runtable_kwargs = dict(
             stations=[station_id],
-            start_time=f"{seasons[0]}-01-01",
-            stop_time=f"{seasons[-1]}-12-31",
+            start_time=f"{season_ints[0]}-01-01",
+            stop_time=f"{season_ints[-1]}-12-31",
             run_types=["physics"]
             )
     table = rt.get_table(**runtable_kwargs)
@@ -159,6 +168,36 @@ if __name__ == "__main__":
     forced_trigger_idx = table["trigger_soft_enabled"] == 1
     table = table[forced_trigger_idx]
 
+
+    outlier_path = "configs/run_gain_outliers.json"
+    with open(outlier_path, "r") as file:
+        run_outliers = json.load(file)
+
+
+    periods_path = "configs/run_gain_periods.json"
+    with open(periods_path, "r") as file:
+        run_periods = json.load(file)
+
+    run_outlier_times = {}
+    for season in seasons:
+        run_outlier_times[str(season)] = {}
+        run_outlier_times[str(season)][str(station_id)] = {}
+        for channel_id in channel_ids:
+            run_outlier_times[str(season)][str(station_id)][str(channel_id)] = []
+            for run_number in run_outliers[str(season)][str(station_id)][str(channel_id)]:
+                table_run = table[table["run"] == run_number]
+                run_outlier_times[str(season)][str(station_id)][str(channel_id)].append(table_run["time_start"].item())
+
+
+    run_periods_times = {}
+    for season in seasons:
+        run_periods_times[str(season)] = {}
+        run_periods_times[str(season)][str(station_id)] = {}
+        for channel_id in channel_ids:
+            run_periods_times[str(season)][str(station_id)][str(channel_id)] = []
+            for run_number in run_periods[str(season)][str(station_id)][str(channel_id)]:
+                table_run = table[table["run"] == run_number]
+                run_periods_times[str(season)][str(station_id)][str(channel_id)].append(table_run["time_start"].item())
 
 
     # seasonal calibration used for these runs per season
@@ -168,27 +207,27 @@ if __name__ == "__main__":
 
 
 
-    vrms_all = []
+    # vrms_all = []
     times = []
     gains_all = []
     period_indices = [[] for _ in channel_ids]
     for season in seasons:
-        data_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/data/vrms/complete_vrms_sets_v0.2/season{season}/station{station_id}/clean/"
+        # data_dir = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/data/vrms/complete_vrms_sets_v0.2/season{season}/station{station_id}/clean/"
         
-        data_paths = natsorted([f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/data/vrms/complete_vrms_sets_v0.2/season{season}/station{station_id}/clean/{filename}" for filename in os.listdir(data_dir)])
+        # data_paths = natsorted([f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/data/vrms/complete_vrms_sets_v0.2/season{season}/station{station_id}/clean/{filename}" for filename in os.listdir(data_dir)])
 
-        vrms = []
-        var_vrms = []
-        for pickle_file in data_paths:
-            rms_dict = read_pickle(pickle_file)
-            vrms.append(rms_dict["vrms"])
-            var_vrms.append(rms_dict["var_vrms"])
-        vrms = np.array(vrms).T
-        var_vrms = np.array(var_vrms).T
-        vrms_all.extend(vrms)
+        # vrms = []
+        # var_vrms = []
+        # for pickle_file in data_paths:
+        #     rms_dict = read_pickle(pickle_file)
+        #     vrms.append(rms_dict["vrms"])
+        #     var_vrms.append(rms_dict["var_vrms"])
+        # vrms = np.array(vrms).T
+        # var_vrms = np.array(var_vrms).T
+        # vrms_all.extend(vrms)
 
 
-        cal_per_run_path = "/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/absolute_amplitude_results/season2023/station11/slope_fixed_to_2023/season2023_st11_all_runs_compiled_slope_fixed_to_2023.pickle"
+        cal_per_run_path = f"/pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/absolute_amplitude_results/season{season}/station{station_id}/slope_fixed_to_2023/season{season}_st{station_id}_all_runs_compiled_slope_fixed_to_2023.pickle"
 
         with open(cal_per_run_path, "rb") as file:
             cal_per_run = pickle.load(file)
@@ -212,7 +251,7 @@ if __name__ == "__main__":
     for channel_id in channel_ids:
         period_indices[channel_id].extend(period_indices_tmp[channel_id])
     times = np.array(times)
-    vrms_all = np.array(vrms_all)
+    # vrms_all = np.array(vrms_all)
 
 
 
@@ -228,7 +267,11 @@ if __name__ == "__main__":
 
 
     for channel_id in channel_ids:
-        fig, axs = plt.subplots(2, 1, sharex=True)
+        fig, ax = plt.subplots(1, 1, sharex=True)
+        axs = [ax]
+
+        outliers_ch = run_outliers[str(season)][str(station_id)][str(channel_id)]
+
         if plot_relative:
             dG = 100 * np.diff(gains_all[:, channel_id]) / gains_all[:-1, channel_id]
              
@@ -244,25 +287,57 @@ if __name__ == "__main__":
                           ls="dashed",
                           color=colors[1]
                           )
+            axs[0].vlines(run_outlier_times[str(season)][str(station_id)][str(channel_id)],
+                            -np.max(dG),
+                            np.max(dG),
+                            ls="dashed",
+                            color=colors[2],
+                            label="outlier"
+                            )
             axs[0].set_ylim(-10,
                             10)
             axs[0].set_ylabel("dGain / %")
         else:
             axs[0].scatter(times, gains_all[:, channel_id],
-                           s=1.,
+                           s=2.,
                            )
             axs[0].hlines(gain_season[channel_id], times[0], times[-1],
                           ls="dashed", color=colors[0])
 
-            axs[0].set_ylim(0.95 * np.min(gains_per_run[:, channel_id]),
-                            1.05 * np.max(gains_per_run[:, channel_id]))
+            # axs[0].set_ylim(0.95 * np.min(gains_per_run[:, channel_id]),
+            #                 1.05 * np.max(gains_per_run[:, channel_id]))
                 
-            axs[0].vlines(times[period_indices[channel_id]],
-                          0,
-                          2*np.max(gains_per_run[channel_id]),
-                          ls="dashed",
-                          color=colors[1]
-                          )
+            # axs[0].vlines(times[period_indices[channel_id]],
+            #               0,
+            #               2*np.max(gains_per_run[channel_id]),
+            #               ls="dashed",
+            #               color=colors[1]
+            #               )
+            # ax.set_autoscale_on(False)
+            for season_i, season in enumerate(seasons):
+                label_outlier = None
+                label_periods = None
+                if season_i==0:
+                    label_outlier="outliers"
+                    label_periods = "period boundary"
+                axs[0].vlines(run_outlier_times[str(season)][str(station_id)][str(channel_id)],
+                                np.min(gains_all[:, channel_id]),
+                                np.max(gains_all[:, channel_id]),
+                                ls="dashed",
+                                color=colors[2],
+                                label=label_outlier,
+                                alpha=0.7,
+                                zorder=-100
+                                )
+                axs[0].vlines(run_periods_times[str(season)][str(station_id)][str(channel_id)],
+                                np.min(gains_all[:, channel_id]),
+                                np.max(gains_all[:, channel_id]),
+                                ls="dashed",
+                                color=colors[0],
+                                label=label_periods,
+                                alpha=1.,
+                                zorder=-100
+                                )
             axs[0].set_ylabel("Gain / amplitude")
 #        axs[0].set_xlim(
 #            times[420],
@@ -270,21 +345,24 @@ if __name__ == "__main__":
 #            )
 
 
-        axs[1].scatter(times, vrms_all[channel_id]/units.mV,
-                       s=1.)
-        axs[1].vlines(times[period_indices[channel_id]],
-                      0,
-                      2*np.max(vrms_all[channel_id]) / units.mV,
-                      ls="dashed",
-                      color=colors[1],
-                      label=f"nr of periods: {len(period_indices[channel_id])}"
-                      )
-        axs[1].set_ylim(0.95 * np.min(vrms_all[channel_id]/units.mV),
-                        1.05 * np.max(vrms_all[channel_id]/units.mV))
-        axs[1].set_xlabel("time")
-        axs[1].set_ylabel("Vrms / mV")
-        axs[1].tick_params(axis="x", rotation = -45)
-        axs[1].legend()
+        # axs[1].scatter(times, vrms_all[channel_id]/units.mV,
+        #                s=1.)
+        # axs[1].vlines(times[period_indices[channel_id]],
+        #               0,
+        #               2*np.max(vrms_all[channel_id]) / units.mV,
+        #               ls="dashed",
+        #               color=colors[1],
+        #               label=f"nr of periods: {len(period_indices[channel_id])}"
+        #               )
+        # axs[1].set_ylim(0.95 * np.min(vrms_all[channel_id]/units.mV),
+        #                 1.05 * np.max(vrms_all[channel_id]/units.mV))
+        axs[0].set_xlabel("time")
+        axs[0].legend()
+        axs[0].tick_params(axis="x", rotation = -45)
+        # axs[1].set_xlabel("time")
+        # axs[1].set_ylabel("Vrms / mV")
+        # axs[1].tick_params(axis="x", rotation = -45)
+        # axs[1].legend()
 
 
         fig.suptitle(f"channel {channel_id}")
@@ -346,8 +424,8 @@ if __name__ == "__main__":
 
     for channel_id in channel_ids:
         fig, ax = plt.subplots()
-        print(len(times))
-        print(len(metric_all[channel_id]))
+        # print(len(times))
+        # print(len(metric_all[channel_id]))
         ax.scatter(
             times[1:],
             metric_all[channel_id],
