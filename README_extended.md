@@ -1,6 +1,6 @@
 # Extended README
 
-This file complains a (too?) detailed description of the important components in this repo, categorized on workflow steps
+This file contains a (too?) detailed description of the important components in this repo, categorized on workflow steps
 
 ## DATA
 
