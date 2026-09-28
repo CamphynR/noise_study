@@ -7,21 +7,21 @@ This file contains a (too?) detailed description of the important components in 
 ### Structure
 The basic structure of the processing scripts is from top to bottom ``` *.submit < main(_multi).py < main_parser_functions.py ```
 Meaning to run the processing one runs a condor_submit file that calls ```main_multi.py ``` or ``` main.py ```. These python scripts are governed by a config file that can be passed as an argument.
-The config file chooses hox the data is processed and what parameters are saved. The functions to process the data are stored in ``` main_parser_functions.py ```
+The config file chooses how the data is processed and what parameters are saved. The functions to process the data are stored in ``` main_parser_functions.py ```
 
 ### SPECTRA
 The data at the lowest level are the root files stored in the T2B mirror
 ```
 /pnfs/iihe/rno-g/data/handcarry
 ```
-a first pass of data processing is performed to only gather spectra of forced trigger data with a maximum trigger rate of 2Hz. No extra claening is done in this step. Spectra are saved per event.
+a first pass of data processing is performed to only gather spectra of forced trigger data with a maximum trigger rate of 2Hz. No extra cleaning is done in this step. Spectra are saved per event.
 The script used to process data is ``` main_multi.py ```
 (note this is not a multiprocessing script in itself it splits the data in batches and you can specify the batch number to process.
-The script is used in conjuction with the condor submit script. A typical command to run this first data pass is
+The script is used in conjunction with the condor submit script. A typical command to run this first data pass is
 ```
 for st in 11 12 13 21 22 23 24; do condor_submit --append STATION=$st submit/noise_study_spectra.submit; done
 ```
-The settings can be found in ``` configs/config_spectra.json ``` The files are saved as nur files.
+The settings can be found in ``` configs/config_spectra.json ``` The files are saved as ```.nur``` files.
 The script automatically saves the files in a job folder named after the date the job finishes. The finished sets were placed in
 ```
 /pnfs/iihe/rno-g/store/user/rcamphyn/noise_study/data/spectra/complete_spectra_sets_v0.2
@@ -36,7 +36,7 @@ The second step of data processing reads in the nur files and applies a channelb
 for st in 11 12 13 21 22 23 24; do condor_submit --append STATION=$st submit/noise_study.submit; done
 ```
 
-This saves the averaged spectra per run as pickle files. Important here is that for this calibration we do not use the standard average but instead we average the squared spectra and take the squareroot at the end.
+This saves the averaged spectra per run as pickle files. Important here is that for this calibration we do not use the standard average but instead we average the squared spectra and take the square root at the end.
 The reasons for which are specified in the paper.
 
 The resulting files were stored under
@@ -64,7 +64,7 @@ All relevant simulation scripts and settings live in ```sim/thermal_noise``` whi
 The simulation consists of noise components [ice, electronic, galactic] **without** the system response template. The system response is applied later during the fitting steps.
 
 ### Thermal noise
-Thermal noise is first simulated as waveforms and stored as .nur files. Each thermal noise component (ice, electronic, galactic) is simulated seperately and stored in a seperate .nur file.
+Thermal noise is first simulated as waveforms and stored as ```.nur``` files. Each thermal noise component (ice, electronic, galactic) is simulated separately and stored in a separate .nur file.
 The master script to run a simulation is
 ```
 sim/thermal_noise/generate_thermal_noise_traces.py
@@ -138,7 +138,7 @@ The master script's argument parser contains several settings such as which data
 
 The most important one is the mode selection on line ```154```. This allows you to choose the actual function that is fitted e.g. ```constant``` only fits the gain factor G. The default is ```system_response_weight``` which also includes a slope weight and uses three parameters: gain, slope and f0.
 
-The ```parameter_fixed``` setting dictates which fitting parameters are kept fixed. If this list contains multiples settings the fitter will interpret these as fit steps. e.g. [[False, True, True], [True, False, True]] will first fit the gain while keepng the other parameters fixed and the fit the slope while keeping the gain and f0 fixed. Which index corresponds to which parameter is defined by the mode in spectrumFitter.
+The ```parameter_fixed``` setting dictates which fitting parameters are kept fixed. If this list contains multiples settings the fitter will interpret these as fit steps. e.g. [[False, True, True], [True, False, True]] will first fit the gain while keeping the other parameters fixed and the fit the slope while keeping the gain and f0 fixed. Which index corresponds to which parameter is defined by the mode in spectrumFitter.
 
 ``` cable_length ``` on line ```261``` defines the length of the coax cable that is removed from the surface response and is given as an option to ```spectrumFitter```
 
